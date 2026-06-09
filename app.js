@@ -104,9 +104,10 @@ function logout() {
 }
 // Tulis dengan retry sekali bila token kedaluwarsa
 async function supaWrite(method, table, opts) {
+  opts = opts || {}; opts.useUserToken = true;
   try { return await supaFetch(method, table, opts); }
   catch (e) {
-    if (isLoggedIn() && /(^|\D)40[13](\D|$)|jwt|token/i.test(e.message)) {
+    if (isLoggedIn() && /(^|\D)40[13](\D|$)|jwt|expired|token/i.test(e.message)) {
       if (await refreshSession()) return await supaFetch(method, table, opts);
     }
     throw e;
@@ -148,7 +149,7 @@ async function submitLogin() {
 async function supaFetch(method, table, opts) {
   opts = opts || {};
   var url = SUPA_REST + '/' + table + (opts.query ? '?' + opts.query : '');
-  var headers = { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken(), 'Content-Type': 'application/json' };
+  var headers = { apikey: SUPA_KEY, Authorization: 'Bearer ' + (opts.useUserToken ? authToken() : SUPA_KEY), 'Content-Type': 'application/json' };
   var prefer = [];
   if (opts.returning) prefer.push('return=representation');
   if (opts.upsert) prefer.push('resolution=merge-duplicates');
@@ -680,6 +681,8 @@ function init() {
   updateAuthUI(); renderUsers(); renderRefTable();
   renderAll();
   loadFromSupabase();
+  // Perbarui token sesi (atau bersihkan bila refresh token sudah kedaluwarsa)
+  if (isLoggedIn()) refreshSession().then(function () { updateAuthUI(); renderUsers(); renderAll(); });
 }
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', init);
 
