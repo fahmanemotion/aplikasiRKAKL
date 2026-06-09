@@ -417,6 +417,56 @@ function downloadKertasKerja() {
   toast('success', 'Kertas Kerja Diunduh', 'TA ' + APP.year + ' — ' + rows.length + ' baris (CSV, dapat dibuka di Excel).');
 }
 
+/* ── Form Input Usulan (modal) ─────────────────────────────────────── */
+function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+function openInput() {
+  var ta = document.getElementById('inTa');
+  if (ta) ta.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '"' + (y === APP.year ? ' selected' : '') + '>TA ' + y + '</option>'; }).join('');
+  var th = document.getElementById('inTahap');
+  if (th) th.innerHTML = STAGES.map(function (s) { return '<option value="' + s.key + '"' + (s.key === APP.stage ? ' selected' : '') + '>' + s.label + '</option>'; }).join('');
+  var dl = document.getElementById('akunList');
+  if (dl) dl.innerHTML = REF_ROWS.map(function (r) { return '<option value="' + esc(r[7]) + '">' + esc(r[8]) + '</option>'; }).join('');
+  recalcJumlah();
+  var m = document.getElementById('inputModal'); if (m) m.classList.add('open');
+}
+function closeInput() { var m = document.getElementById('inputModal'); if (m) m.classList.remove('open'); }
+function recalcJumlah() {
+  var v = parseFloat(gv('inVol')) || 0, h = parseFloat(gv('inHrg')) || 0;
+  var j = document.getElementById('inJumlah'); if (j) j.value = fmtRp(v * h);
+}
+function onAkunInput() {
+  var ak = gv('inAkun').trim();
+  var found = REF_ROWS.filter(function (r) { return r[7] === ak; })[0];
+  var da = document.getElementById('inDetailAkun');
+  if (found && da && !da.value) da.value = found[8];
+}
+async function submitInput() {
+  var rec = {
+    ta: gv('inTa') || APP.year, tahap: gv('inTahap') || APP.stage,
+    ba: gv('inBa').trim() || '022', prog: gv('inProg').trim(), keg: gv('inKeg').trim(),
+    kro: gv('inKro').trim(), ro: gv('inRo').trim(), komp: gv('inKomp').trim(), subkomp: gv('inSubkomp').trim(),
+    akun: gv('inAkun').trim(), detail_akun: gv('inDetailAkun').trim(), detail_belanja: gv('inDetailBelanja').trim(),
+    vol: parseFloat(gv('inVol')) || 0, sat: gv('inSat').trim(), hrg_sat: parseFloat(gv('inHrg')) || 0,
+    sd: gv('inSd') || 'rm', kategori: gv('inKategori') || 'ops',
+    prog_nama: gv('inProgNama').trim(), keg_nama: gv('inKegNama').trim(), kro_nama: '', ro_nama: '',
+  };
+  if (!rec.akun || !rec.detail_belanja) { toast('error', 'Lengkapi Data', 'Akun dan Detail Belanja wajib diisi.'); return; }
+  if (rec.vol <= 0 || rec.hrg_sat <= 0) { toast('error', 'Lengkapi Data', 'Volume dan Harga Satuan harus lebih dari 0.'); return; }
+  var btn = document.getElementById('inSaveBtn'); if (btn) btn.disabled = true;
+  try {
+    await supaFetch('POST', TABLE, { query: UPSERT_KEY, body: [toDbRow(rec)], upsert: true });
+    toast('success', 'Tersimpan', 'Usulan "' + rec.detail_belanja + '" (' + fmtRp(rec.vol * rec.hrg_sat) + ') disimpan.');
+    closeInput();
+    // Tampilkan pada TA & tahap yang baru disimpan
+    APP.year = rec.ta; APP.stage = rec.tahap;
+    var ts = document.getElementById('taSelect'); if (ts) ts.value = rec.ta;
+    var psel = document.getElementById('paguSelect'); if (psel) psel.value = rec.tahap;
+    await loadFromSupabase();
+  } catch (e) {
+    toast('error', 'Gagal Menyimpan', e.message); console.error('[SIPRA] input error:', e);
+  } finally { if (btn) btn.disabled = false; }
+}
+
 /* ── Pengaturan Data: referensi kode ── */
 var REF_COLS = ['BA', 'Program', 'Kegiatan', 'KRO', 'RO', 'Komponen', 'Sub Komponen', 'Akun', 'Detail Akun', 'Detail Belanja'];
 var REF_ROWS = [
