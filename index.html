@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIPRA — Penganggaran RKA/KL · PIP Makassar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ═══ Sidebar ═══ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-brand">
+      <div class="sb-logo"><i class="fas fa-file-invoice-dollar"></i></div>
+      <div>
+        <div class="sb-name">SIPRA</div>
+        <div class="sb-ver">v1.0 · RKA/KL</div>
+      </div>
+    </div>
+    <nav class="sb-nav">
+      <div class="sb-sec">Menu Utama</div>
+      <div class="nav-item active" id="nav-dashboard" onclick="switchPage('dashboard', this)">
+        <i class="fas fa-gauge-high"></i><span>Dashboard</span>
+      </div>
+      <div class="sb-sec">Penganggaran</div>
+      <div class="nav-item" id="nav-penganggaran" onclick="switchPage('penganggaran', this)">
+        <i class="fas fa-coins"></i><span>Modul Penganggaran</span>
+      </div>
+      <div class="sb-sec">Sistem</div>
+      <div class="nav-item" id="nav-pengaturan" onclick="switchPage('pengaturan', this)">
+        <i class="fas fa-database"></i><span>Pengaturan Data</span>
+      </div>
+      <div class="nav-item" id="nav-manajemen" onclick="switchPage('manajemen', this)">
+        <i class="fas fa-users-gear"></i><span>Manajemen Akun</span>
+      </div>
+    </nav>
+    <div class="sb-footer">
+      <div class="sb-user">
+        <div class="sb-av">AD</div>
+        <div>
+          <div class="sb-uname">admin</div>
+          <div class="sb-urole">Administrator</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sb-overlay" id="sbOverlay" onclick="toggleSidebar()"></div>
+
+  <!-- ═══ App ═══ -->
+  <div id="appWrap">
+    <div class="main">
+      <!-- Topnav -->
+      <div class="topnav">
+        <div class="topnav-l">
+          <button class="hamburger" onclick="toggleSidebar()"><span></span><span></span><span></span></button>
+          <div class="breadcrumb"><i class="fas fa-gauge-high" id="bcIcon"></i><strong id="bcText">Dashboard</strong></div>
+        </div>
+        <div class="topnav-r">
+          <!-- Selektor PAGU (tahap usulan) -->
+          <div class="pagu-chip">
+            <i class="fas fa-layer-group"></i>
+            <select class="pagu-select" id="paguSelect" onchange="onPaguChange(this.value)">
+              <option value="kebutuhan">PAGU Kebutuhan</option>
+              <option value="indikatif">PAGU Indikatif</option>
+              <option value="anggaran" selected>PAGU Anggaran</option>
+              <option value="alokasi">PAGU Alokasi</option>
+            </select>
+          </div>
+          <!-- Selektor Tahun Anggaran -->
+          <div class="ta-chip">
+            <i class="fas fa-calendar"></i>
+            <select class="ta-select" id="taSelect" onchange="onYearChange(this.value)"></select>
+          </div>
+          <button class="icon-btn" onclick="toggleTheme()" title="Tema"><i class="fas fa-moon" id="themeIcon"></i></button>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- ═══════════════ DASHBOARD ═══════════════ -->
+        <div class="page active" id="page-dashboard">
+          <div class="pg-hdr">
+            <div>
+              <div class="pg-title">Perencanaan Anggaran RKA/KL</div>
+              <div class="pg-sub" id="dashSub">PIP MAKASSAR</div>
+            </div>
+          </div>
+
+          <!-- 6 Kartu (3 atas + 3 bawah) -->
+          <div class="kpi-row k3" id="kpiRow"></div>
+
+          <!-- Chart Usulan Anggaran (full width, bar saja) -->
+          <div class="chart-card full">
+            <div class="chart-hdr">
+              <div>
+                <div class="chart-title">Usulan Anggaran</div>
+                <div class="chart-sub" id="usulanSub">Nilai usulan per tahap PAGU</div>
+              </div>
+              <div class="pill-group" id="usulanModePills">
+                <button class="pill active" data-mode="current" onclick="onUsulanMode('current', this)"><i class="fas fa-calendar-day"></i> Tahun Berjalan</button>
+                <button class="pill" data-mode="compare" onclick="onUsulanMode('compare', this)"><i class="fas fa-layer-group"></i> Perbandingan 3 Tahun</button>
+              </div>
+            </div>
+            <div class="chart-body"><canvas id="usulanChart" class="tall"></canvas></div>
+          </div>
+
+          <!-- Dua Pie: (1) RM/BLU, (2) Ops/NonOps -->
+          <div class="chart-row two">
+            <div class="chart-card">
+              <div class="chart-hdr">
+                <div>
+                  <div class="chart-title">Komposisi Belanja — Sumber Dana</div>
+                  <div class="chart-sub">Per jenis belanja (Pegawai / Barang / Modal)</div>
+                </div>
+                <div class="src-tabs" id="pie1Tabs">
+                  <div class="src-tab active" data-src="gabungan" onclick="onPie1Src('gabungan', this)">Gabungan</div>
+                  <div class="src-tab" data-src="rm" onclick="onPie1Src('rm', this)">RM</div>
+                  <div class="src-tab" data-src="blu" onclick="onPie1Src('blu', this)">BLU</div>
+                </div>
+              </div>
+              <div class="chart-body"><canvas id="pie1Chart"></canvas></div>
+              <div class="chart-legend" id="pie1Legend"></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-hdr">
+                <div>
+                  <div class="chart-title">Komposisi Belanja — Kategori</div>
+                  <div class="chart-sub">Per jenis belanja (Pegawai / Barang / Modal)</div>
+                </div>
+                <div class="src-tabs" id="pie2Tabs">
+                  <div class="src-tab active" data-cat="gabungan" onclick="onPie2Cat('gabungan', this)">Gabungan</div>
+                  <div class="src-tab" data-cat="ops" onclick="onPie2Cat('ops', this)">Ops</div>
+                  <div class="src-tab" data-cat="nonops" onclick="onPie2Cat('nonops', this)">Non&nbsp;Ops</div>
+                </div>
+              </div>
+              <div class="chart-body"><canvas id="pie2Chart"></canvas></div>
+              <div class="chart-legend" id="pie2Legend"></div>
+            </div>
+          </div>
+
+          <!-- Daftar Usulan (pohon, gaya gambar 2) -->
+          <div class="section" style="margin-top:18px">
+            <div class="sec-hdr">
+              <div class="sec-title-row">
+                <div class="sec-title">Daftar Usulan</div>
+                <span class="count-badge" id="usulanBadge">0 Kegiatan</span>
+              </div>
+              <div class="uf-grid">
+                <div class="uf"><label>Program</label><select class="fsel" id="ufProg" onchange="onUf('prog', this.value)"></select></div>
+                <div class="uf"><label>KRO</label><select class="fsel" id="ufKro" onchange="onUf('kro', this.value)"></select></div>
+                <div class="uf"><label>RO</label><select class="fsel" id="ufRo" onchange="onUf('ro', this.value)"></select></div>
+                <div class="uf"><label>Akun</label><select class="fsel" id="ufAkun" onchange="onUf('akun', this.value)"></select></div>
+                <div class="uf"><label>Detail</label><select class="fsel" id="ufDetail" onchange="onUf('detail', this.value)"></select></div>
+                <div class="uf"><label>Sumber Dana</label>
+                  <select class="fsel" id="ufSd" onchange="onUf('sd', this.value)">
+                    <option value="">Gabungan</option><option value="rm">RM</option><option value="blu">BLU</option>
+                  </select>
+                </div>
+                <div class="uf"><label>Cari</label>
+                  <div class="search-box"><i class="fas fa-search"></i>
+                    <input id="ufQ" type="text" placeholder="Cari kegiatan, kode…" oninput="onUfSearch()" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="tbl-wrap">
+              <table class="dtbl" id="usulanTbl">
+                <thead><tr id="usulanHead"></tr></thead>
+                <tbody id="usulanBody"></tbody>
+              </table>
+            </div>
+            <div class="tbl-footer">
+              <div class="tbl-info" id="usulanInfo">—</div>
+              <div class="pagin" id="usulanPagin"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════ MODUL PENGANGGARAN ═══════════════ -->
+        <div class="page" id="page-penganggaran">
+          <div class="pg-hdr">
+            <div>
+              <div class="pg-title">Modul Penganggaran</div>
+              <div class="pg-sub" id="pengSub">Informasi anggaran yang telah diinput</div>
+            </div>
+          </div>
+
+          <!-- 6 Kartu (sama seperti dashboard) -->
+          <div class="kpi-row k3" id="pengKpiRow"></div>
+
+          <!-- Input & aksi data -->
+          <div class="section" style="padding:20px;margin-bottom:18px">
+            <div class="sec-title" style="margin-bottom:10px">Input Usulan Anggaran</div>
+            <p style="color:var(--t2);font-size:13px;line-height:1.7;margin-bottom:12px">
+              Nilai usulan disimpan pada database di bawah (format: BA · Prog · Keg · KRO · RO · Komp · S.Komp · Akun · Detail Akun · Detail Belanja · SD · Kategori · Nilai).
+              Metode pengisian akan ditentukan kemudian.
+            </p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn-primary" onclick="comingSoon()"><i class="fas fa-pen-to-square"></i> Input</button>
+              <button class="btn-sec" onclick="comingSoon()"><i class="fas fa-file-arrow-up"></i> Upload Data Keuangan</button>
+              <button class="btn-sec" onclick="downloadKertasKerja()"><i class="fas fa-file-arrow-down"></i> Download Kertas Kerja</button>
+            </div>
+          </div>
+
+          <!-- Database nilai usulan (gaya gambar 3) -->
+          <div class="section">
+            <div class="sec-hdr">
+              <div class="sec-title-row">
+                <div class="sec-title">Database Usulan Anggaran</div>
+                <span class="count-badge" id="dbBadge">0 Baris</span>
+              </div>
+            </div>
+            <div class="tbl-wrap">
+              <table class="dtbl" id="dbTbl">
+                <thead><tr id="dbHead"></tr></thead>
+                <tbody id="dbBody"></tbody>
+              </table>
+            </div>
+            <div class="tbl-footer">
+              <div class="tbl-info" id="dbInfo">—</div>
+              <div class="pagin" id="dbPagin"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════ PENGATURAN DATA ═══════════════ -->
+        <div class="page" id="page-pengaturan">
+          <div class="pg-hdr">
+            <div>
+              <div class="pg-title">Pengaturan Data</div>
+              <div class="pg-sub">Basis data kode anggaran (referensi RKA/KL)</div>
+            </div>
+          </div>
+          <div class="section" style="padding:20px">
+            <div class="sec-title" style="margin-bottom:6px">Basis Data Kode Anggaran</div>
+            <p style="color:var(--t3);font-size:12px;line-height:1.6;margin-bottom:14px">
+              Struktur mengikuti tabel referensi: BA · Program · Kegiatan · KRO · RO · Komponen · Sub Komponen · Akun · Detail Akun · Detail Belanja.
+              Kolom <strong>Detail Belanja</strong> dikosongkan (diisi kemudian). Metode pengisian (input manual / unggah) menyusul.
+            </p>
+            <div class="tbl-wrap">
+              <table class="dtbl" id="codeTbl">
+                <thead><tr id="codeHead"></tr></thead>
+                <tbody id="codeBody"></tbody>
+              </table>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+              <button class="btn-sec" onclick="comingSoon()"><i class="fas fa-plus"></i> Tambah Manual</button>
+              <button class="btn-sec" onclick="comingSoon()"><i class="fas fa-file-arrow-up"></i> Unggah Data Keuangan</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════ MANAJEMEN AKUN ═══════════════ -->
+        <div class="page" id="page-manajemen">
+          <div class="pg-hdr">
+            <div>
+              <div class="pg-title">Manajemen Akun</div>
+              <div class="pg-sub">Pengguna aplikasi</div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="sec-hdr"><div class="sec-title-row"><div class="sec-title">Daftar Pengguna</div></div></div>
+            <div class="tbl-wrap">
+              <table class="dtbl">
+                <thead><tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th></tr></thead>
+                <tbody id="userBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /content -->
+    </div><!-- /main -->
+  </div><!-- /appWrap -->
+
+  <div class="toast-box" id="toastBox"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
