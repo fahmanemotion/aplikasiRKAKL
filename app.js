@@ -454,10 +454,11 @@ function renderPagin(elId, total, page, pp, cb) {
 /* ── DATABASE (gaya gambar: 16 kolom) di Modul Penganggaran ── */
 function renderDatabase() {
   var head = document.getElementById('dbHead');
-  var cols = ['BA', 'PROG', 'KEG', 'KRO', 'RO', 'KOMP', 'S.KOMP', 'AKUN', 'DETAIL AKUN', 'DETAIL BELANJA', 'VOL', 'SAT', 'HRG SAT', 'JUMLAH', 'SD', 'KATGR', 'AKSI'];
+  var cols = ['KODE', 'DETAIL AKUN', 'DETAIL BELANJA', 'VOL', 'SAT', 'HRG SAT', 'JUMLAH', 'SD', 'KATGR', 'AKSI'];
   if (head) head.innerHTML = cols.map(function (c) {
-    var right = (c === 'VOL' || c === 'HRG SAT' || c === 'JUMLAH') ? ' style="text-align:right"' : (c === 'AKSI' ? ' style="text-align:center"' : '');
-    return '<th' + right + '>' + c + '</th>';
+    var right = (c === 'VOL' || c === 'HRG SAT' || c === 'JUMLAH') ? ' style="text-align:right"' : '';
+    var center = (c === 'KATGR' || c === 'AKSI') ? ' style="text-align:center"' : '';
+    return '<th' + right + center + '>' + c + '</th>';
   }).join('');
   var rows = recordsView(APP.year, APP.stage);
   var from = (APP.dbPage - 1) * APP.PP, slice = rows.slice(from, from + APP.PP);
@@ -471,16 +472,15 @@ function renderDatabase() {
         '<button class="ra-del" title="Hapus" onclick="deleteRow(\'' + r.id + '\')"><i class="fas fa-trash"></i></button></div>'
       : '<span style="color:var(--t3)">—</span>';
     return '<tr>' +
-      '<td class="mono">' + r.ba + '</td><td class="mono">' + r.prog + '</td><td class="mono">' + r.keg + '</td>' +
-      '<td class="mono">' + r.kro + '</td><td class="mono">' + r.ro + '</td><td class="mono">' + r.komp + '</td>' +
-      '<td class="mono">' + r.subkomp + '</td><td class="mono">' + r.akun + '</td>' +
+      '<td class="mono">' + esc(kodeOf(r)) + '</td>' +
       '<td>' + esc(r.detail_akun) + '</td><td>' + esc(r.detail_belanja) + '</td>' +
       '<td class="mono" style="text-align:right">' + r.vol + '</td><td>' + esc(r.sat) + '</td>' +
       '<td class="mono" style="text-align:right">' + fmtRp(r.hrg_sat) + '</td>' +
       '<td class="mono" style="text-align:right;font-weight:600;color:var(--t1)">' + fmtRp(amountOf(r)) + '</td>' +
-      '<td>' + sdChip(r.sd) + '</td><td>' + catChip(r.kategori) + '</td>' +
+      '<td>' + sdChip(r.sd) + '</td>' +
+      '<td style="text-align:center">' + catChip(r.kategori) + '</td>' +
       '<td style="text-align:center">' + aksi + '</td></tr>';
-  }).join('') : '<tr><td colspan="17" style="text-align:center;padding:32px;color:var(--t3)">Belum ada data tersimpan</td></tr>';
+  }).join('') : '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--t3)">Belum ada data tersimpan</td></tr>';
   renderPagin('dbPagin', rows.length, APP.dbPage, APP.PP, 'goDb');
 }
 function goDb(p) { APP.dbPage = p; renderDatabase(); }

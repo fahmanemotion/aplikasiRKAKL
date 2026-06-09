@@ -192,16 +192,11 @@
 
           <!-- Input & aksi data -->
           <div class="section" style="padding:20px;margin-bottom:18px">
-            <div class="sec-title" style="margin-bottom:10px">Input Usulan Anggaran</div>
-            <p style="color:var(--t2);font-size:13px;line-height:1.7;margin-bottom:12px">
-              Nilai usulan disimpan pada database di bawah (format: BA · Prog · Keg · KRO · RO · Komp · S.Komp · Akun · Detail Akun · Detail Belanja · SD · Kategori · Nilai).
-              Metode pengisian akan ditentukan kemudian.
-            </p>
+            <div class="sec-title" style="margin-bottom:12px">Input Usulan Anggaran</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn-primary" onclick="openInput()"><i class="fas fa-pen-to-square"></i> Input</button>
               <button class="btn-sec" onclick="comingSoon()"><i class="fas fa-file-arrow-up"></i> Upload Data Keuangan</button>
               <button class="btn-sec" onclick="downloadKertasKerja()"><i class="fas fa-file-arrow-down"></i> Download Kertas Kerja</button>
-              <button class="btn-sec" onclick="seedToSupabase()" title="Mengisi database dengan data contoh untuk uji coba koneksi"><i class="fas fa-flask"></i> Isi Data Contoh (uji)</button>
             </div>
           </div>
 
@@ -209,7 +204,7 @@
           <div class="section">
             <div class="sec-hdr">
               <div class="sec-title-row">
-                <div class="sec-title">Database Usulan Anggaran</div>
+                <div class="sec-title">Usulan Anggaran</div>
                 <span class="count-badge" id="dbBadge">0 Baris</span>
               </div>
             </div>
