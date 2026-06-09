@@ -1,8 +1,7 @@
 /* =====================================================================
    SIPRA — Sistem Penganggaran RKA/KL · PIP Makassar
-   Stack: Vanilla HTML / CSS / JS (chart: Chart.js)
-   Data di bawah adalah CONTOH demonstrasi. Metode input (Input / Upload)
-   dan basis data permanen menyusul.
+   Penyimpanan: Supabase tabel public.usulan_belanja
+   (1 baris = 1 Detail Belanja per tahap PAGU; JUMLAH = VOL × HRG SAT)
    ===================================================================== */
 
 var STAGES = [
@@ -13,6 +12,13 @@ var STAGES = [
 ];
 var STAGE_LABEL = { kebutuhan: 'Kebutuhan', indikatif: 'Indikatif', anggaran: 'Anggaran', alokasi: 'Alokasi' };
 
+/* ── Konfigurasi Supabase ──────────────────────────────────────────── */
+var SUPA_URL  = 'https://ozwdehnqjipbzdeqpamp.supabase.co';
+var SUPA_REST = SUPA_URL + '/rest/v1';
+var SUPA_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96d2RlaG5xamlwYnpkZXFwYW1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMDA0MTYsImV4cCI6MjA5NjU3NjQxNn0.uRO3dtZaH0bAoj5K8A_eLpQRgeaJWTKXM6icDazZIwg';
+var TABLE = 'usulan_belanja';
+var UPSERT_KEY = 'on_conflict=ta,tahap,ba,prog,keg,kro,ro,komp,subkomp,akun,detail_belanja';
+
 var APP = {
   theme: 'light',
   stage: 'anggaran',
@@ -20,9 +26,10 @@ var APP = {
   usulanMode: 'current',
   pie1Src: 'gabungan',
   pie2Cat: 'gabungan',
-  uf: { prog: '', kro: '', ro: '', akun: '', detail: '', sd: '' },   // filter daftar usulan
-  expanded: {},                                                       // grup yang sedang dibuka
+  uf: { prog: '', kro: '', ro: '', akun: '', detail: '', sd: '' },
+  expanded: {},
   usulanPage: 1, dbPage: 1, PP: 12,
+  satker: 'PIP MAKASSAR',
   records: [],
 };
 
@@ -54,34 +61,102 @@ function toast(type, title, msg) {
     (msg ? '<div class="toast-msg">' + esc(msg) + '</div>' : '') + '</div>' +
     '<button class="toast-x" onclick="this.parentElement.remove()"><i class="fas fa-xmark"></i></button>';
   box.appendChild(el);
-  setTimeout(function () { el.classList.add('out'); setTimeout(function () { el.remove(); }, 250); }, 4200);
+  setTimeout(function () { el.classList.add('out'); setTimeout(function () { el.remove(); }, 250); }, 4600);
 }
 function comingSoon() { toast('info', 'Segera Hadir', 'Metode input/unggah akan ditambahkan kemudian.'); }
 
-/* ── DATA CONTOH (PIP Makassar — BA 022 Kemenhub) ──────────────────────
-   Satu baris = satu "Detail Belanja" (item) di bawah sebuah Akun.
-   Nilai PAGU Anggaran disetel agar total cocok dengan tampilan kartu. */
-function pagu(nominal) {
+/* ── Lapisan Supabase (REST) ── */
+async function supaFetch(method, table, opts) {
+  opts = opts || {};
+  var url = SUPA_REST + '/' + table + (opts.query ? '?' + opts.query : '');
+  var headers = { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json' };
+  var prefer = [];
+  if (opts.returning) prefer.push('return=representation');
+  if (opts.upsert) prefer.push('resolution=merge-duplicates');
+  if (prefer.length) headers['Prefer'] = prefer.join(',');
+  var res = await fetch(url, { method: method, headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (!res.ok) { var t = await res.text(); throw new Error(method + ' ' + table + ' → ' + res.status + ' ' + t); }
+  if (method === 'DELETE' || !opts.returning) return null;
+  var txt = await res.text(); return txt ? JSON.parse(txt) : null;
+}
+async function supaFetchAll(table, baseQuery) {
+  var all = [], pageSize = 1000;
+  for (var off = 0; ; off += pageSize) {
+    var rows = await supaFetch('GET', table, { query: baseQuery + '&limit=' + pageSize + '&offset=' + off, returning: true }) || [];
+    all = all.concat(rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}
+// Baris DB → record aplikasi
+function mapRow(r) {
+  var vol = +r.vol || 0, hrg = +r.hrg_sat || 0;
   return {
-    kebutuhan: Math.round(nominal * 1.15),
-    indikatif: Math.round(nominal * 1.07),
-    anggaran:  Math.round(nominal),          // tahap "Anggaran" = nilai kerja
-    alokasi:   Math.round(nominal * 0.97),
+    id: r.id, ta: String(r.ta), tahap: r.tahap || 'anggaran',
+    ba: r.ba, prog: r.prog, prog_nama: r.prog_nama, keg: r.keg, keg_nama: r.keg_nama,
+    kro: r.kro, kro_nama: r.kro_nama, ro: r.ro, ro_nama: r.ro_nama,
+    komp: r.komp, subkomp: r.subkomp, akun: r.akun, detail_akun: r.detail_akun, detail_belanja: r.detail_belanja,
+    vol: vol, sat: r.sat, hrg_sat: hrg, jumlah: (r.jumlah != null ? +r.jumlah : vol * hrg),
+    sd: r.sd, kategori: r.kategori, jenis: r.jenis || kodeToJenis(r.akun),
   };
 }
-// [akun, detail_akun, sd, kategori, komp, [ [detail_belanja, vol, sat, hrg_sat], ... ] ]
+// Record aplikasi → baris DB (tanpa id/jumlah/jenis; ketiganya otomatis di DB)
+function toDbRow(r) {
+  return {
+    ta: r.ta, tahap: r.tahap, ba: r.ba, prog: r.prog, prog_nama: r.prog_nama, keg: r.keg, keg_nama: r.keg_nama,
+    kro: r.kro, kro_nama: r.kro_nama, ro: r.ro, ro_nama: r.ro_nama || null, komp: r.komp, subkomp: r.subkomp,
+    akun: r.akun, detail_akun: r.detail_akun, detail_belanja: r.detail_belanja,
+    vol: r.vol, sat: r.sat, hrg_sat: r.hrg_sat, sd: r.sd, kategori: r.kategori,
+  };
+}
+async function loadFromSupabase() {
+  try {
+    var rows = await supaFetchAll(TABLE, 'select=*&order=id');
+    APP.records = rows.map(mapRow);
+    try {
+      var meta = await supaFetch('GET', 'metadata', { query: 'select=key,value', returning: true }) || [];
+      var m = {}; meta.forEach(function (x) { m[x.key] = x.value; });
+      if (m.satker) APP.satker = m.satker;
+    } catch (e) { /* metadata opsional */ }
+    populateYears(); renderAll();
+    toast('success', 'Terhubung ke Supabase', APP.records.length + ' baris dimuat dari ' + TABLE + '.');
+  } catch (e) {
+    APP.records = []; renderAll();
+    toast('error', 'Gagal Terhubung ke Supabase', e.message);
+    console.error('[SIPRA] load error:', e);
+  }
+}
+async function seedToSupabase() {
+  if (!confirm('Isi database dengan DATA CONTOH (3 tahun × 4 tahap PAGU) untuk uji coba?\nBaris dengan kunci sama akan diperbarui (tidak menggandakan).')) return;
+  try {
+    var rows = buildSeed().map(toDbRow);
+    for (var i = 0; i < rows.length; i += 200) {
+      await supaFetch('POST', TABLE, { query: UPSERT_KEY, body: rows.slice(i, i + 200), upsert: true });
+    }
+    toast('success', 'Data Contoh Tersimpan', rows.length + ' baris dikirim ke Supabase. Memuat ulang…');
+    await loadFromSupabase();
+  } catch (e) {
+    toast('error', 'Gagal Menyimpan', e.message);
+    console.error('[SIPRA] seed error:', e);
+  }
+}
+
+/* ── DATA CONTOH ──────────────────────────────────────────────────────
+   Nilai tahap "Anggaran" TA berjalan disetel agar cocok dengan kartu. */
+var STAGE_FACTOR = { kebutuhan: 1.15, indikatif: 1.07, anggaran: 1.0, alokasi: 0.97 };
+// [akun, detail_akun, sd, kategori, komp, [ [detail_belanja, vol, sat, hrg_sat_anggaran], ... ] ]
 var GROUPS = [
-  ['511111', 'Belanja Gaji Pokok PNS',                'rm',  'ops',    '051', [['Gaji Pokok PNS', 12, 'BLN', 60000000]]],
-  ['511121', 'Belanja Tunjangan Keluarga',            'rm',  'ops',    '051', [['Tunjangan Suami/Istri & Anak', 12, 'BLN', 11853000]]],
-  ['521111', 'Belanja Keperluan Perkantoran',         'rm',  'ops',    '052', [['ATK & Keperluan Kantor', 12, 'BLN', 45000000]]],
-  ['522111', 'Belanja Langganan Listrik',             'rm',  'ops',    '052', [['Langganan Listrik', 12, 'BLN', 80000000]]],
-  ['525113', 'Belanja Jasa (BLU)',                    'blu', 'ops',    '053', [['Jasa Layanan BLU', 1, 'THN', 865000000]]],
-  ['521211', 'Belanja Bahan',                         'rm',  'nonops', '054', [['Bahan Praktik Diklat', 8, 'KEG', 120000000], ['Konsumsi Diklat', 1, 'PKT', 247800000]]],
-  ['521213', 'Belanja Honor Output Kegiatan',         'rm',  'nonops', '054', [['Honor Penguji & Pengawas Ujian', 1, 'PKT', 500000000]]],
-  ['524111', 'Belanja Perjalanan Dinas Biasa',        'rm',  'nonops', '055', [['Perjalanan Dinas Instruktur', 100, 'OT', 5000000]]],
-  ['525112', 'Belanja Barang (BLU)',                  'blu', 'nonops', '056', [['Kebutuhan Operasional Diklat BLU', 1, 'THN', 1000000000]]],
-  ['532111', 'Belanja Modal Peralatan dan Mesin',     'rm',  'nonops', '057', [['Pengadaan Simulator', 1, 'PKT', 4500000000], ['Pengadaan Perangkat Lab Komputer', 1, 'PKT', 1213000000]]],
-  ['533111', 'Belanja Modal Gedung dan Bangunan',     'rm',  'nonops', '058', [['Pembangunan Asrama Taruna', 1, 'PKT', 2000000000]]],
+  ['511111', 'Belanja Gaji Pokok PNS',                  'rm',  'ops',    '051', [['Gaji Pokok PNS', 12, 'BLN', 60000000]]],
+  ['511121', 'Belanja Tunjangan Keluarga',              'rm',  'ops',    '051', [['Tunjangan Suami/Istri & Anak', 12, 'BLN', 11853000]]],
+  ['521111', 'Belanja Keperluan Perkantoran',           'rm',  'ops',    '052', [['ATK & Keperluan Kantor', 12, 'BLN', 45000000]]],
+  ['522111', 'Belanja Langganan Listrik',               'rm',  'ops',    '052', [['Langganan Listrik', 12, 'BLN', 80000000]]],
+  ['525113', 'Belanja Jasa (BLU)',                      'blu', 'ops',    '053', [['Jasa Layanan BLU', 1, 'THN', 865000000]]],
+  ['521211', 'Belanja Bahan',                           'rm',  'nonops', '054', [['Bahan Praktik Diklat', 8, 'KEG', 120000000], ['Konsumsi Diklat', 1, 'PKT', 247800000]]],
+  ['521213', 'Belanja Honor Output Kegiatan',           'rm',  'nonops', '054', [['Honor Penguji & Pengawas Ujian', 1, 'PKT', 500000000]]],
+  ['524111', 'Belanja Perjalanan Dinas Biasa',          'rm',  'nonops', '055', [['Perjalanan Dinas Instruktur', 100, 'OT', 5000000]]],
+  ['525112', 'Belanja Barang (BLU)',                    'blu', 'nonops', '056', [['Kebutuhan Operasional Diklat BLU', 1, 'THN', 1000000000]]],
+  ['532111', 'Belanja Modal Peralatan dan Mesin',       'rm',  'nonops', '057', [['Pengadaan Simulator', 1, 'PKT', 4500000000], ['Pengadaan Perangkat Lab Komputer', 1, 'PKT', 1213000000]]],
+  ['533111', 'Belanja Modal Gedung dan Bangunan',       'rm',  'nonops', '058', [['Pembangunan Asrama Taruna', 1, 'PKT', 2000000000]]],
   ['537112', 'Belanja Modal Peralatan dan Mesin (BLU)', 'blu', 'nonops', '059', [['Peralatan Laboratorium BLU', 1, 'PKT', 500000000]]],
 ];
 function buildSeed() {
@@ -89,21 +164,22 @@ function buildSeed() {
   var recs = [];
   ys.forEach(function (yr) {
     var f = yf[yr];
-    GROUPS.forEach(function (g, gi) {
-      var akun = g[0], detail_akun = g[1], sd = g[2], kat = g[3], komp = g[4], items = g[5];
-      items.forEach(function (it, ii) {
-        var vol = it[1], hrg = Math.round(it[3] * f), nominal = vol * hrg;
-        recs.push({
-          id: yr + '-' + gi + '-' + ii, ta: yr,
-          ba: '022', prog: '12.DL', keg: '3996', kro: 'SAB', ro: '005',
-          komp: komp, subkomp: 'A',
-          prog_nama: 'Pendidikan & Pelatihan Transportasi',
-          keg_nama: 'Penyelenggaraan Diklat Transportasi Laut',
-          kro_nama: 'Sarana Bidang Pendidikan',
-          akun: akun, detail_akun: detail_akun, detail_belanja: it[0],
-          vol: vol, sat: it[2], hrg_sat: hrg,
-          sd: sd, kategori: kat, jenis: kodeToJenis(akun),
-          pagu: pagu(nominal),
+    STAGES.forEach(function (stg) {
+      var sf = STAGE_FACTOR[stg.key];
+      GROUPS.forEach(function (g, gi) {
+        var akun = g[0], detail_akun = g[1], sd = g[2], kat = g[3], komp = g[4], items = g[5];
+        items.forEach(function (it, ii) {
+          var vol = it[1], hrg = Math.round(it[3] * f * sf), jumlah = vol * hrg;
+          recs.push({
+            id: yr + '-' + stg.key + '-' + gi + '-' + ii, ta: yr, tahap: stg.key,
+            ba: '022', prog: '12.DL', keg: '3996', kro: 'SAB', ro: '005', komp: komp, subkomp: 'A',
+            prog_nama: 'Pendidikan & Pelatihan Transportasi',
+            keg_nama: 'Penyelenggaraan Diklat Transportasi Laut',
+            kro_nama: 'Sarana Bidang Pendidikan', ro_nama: '',
+            akun: akun, detail_akun: detail_akun, detail_belanja: it[0],
+            vol: vol, sat: it[2], hrg_sat: hrg, jumlah: jumlah,
+            sd: sd, kategori: kat, jenis: kodeToJenis(akun),
+          });
         });
       });
     });
@@ -111,15 +187,17 @@ function buildSeed() {
   return recs;
 }
 
+/* ── Akses data ── */
 function recordsForYear(yr) { return APP.records.filter(function (r) { return r.ta === String(yr); }); }
-function amountOf(r, stageKey) { return (r.pagu && r.pagu[stageKey]) || 0; }
+function recordsView(yr, stage) { return APP.records.filter(function (r) { return r.ta === String(yr) && r.tahap === stage; }); }
+function amountOf(r) { return +r.jumlah || 0; }
 function kodeOf(r) { return r.keg + '.' + r.kro + '.' + r.ro + '.' + r.akun; }
 
 /* ── 6 Kartu ── */
-function computeCards(yr, stageKey) {
-  var s = { total: 0, ops: 0, nonops: 0, pegawai: 0, barang: 0, modal: 0 };
-  recordsForYear(yr).forEach(function (r) {
-    var a = amountOf(r, stageKey);
+function computeCards(yr, stage) {
+  var s = { total: 0, ops: 0, nonops: 0, pegawai: 0, barang: 0, modal: 0, baris: 0 };
+  recordsView(yr, stage).forEach(function (r) {
+    var a = amountOf(r); s.baris++;
     s.total += a; (r.kategori === 'ops' ? s.ops += a : s.nonops += a); s[r.jenis] += a;
   });
   return s;
@@ -133,11 +211,11 @@ function cardHtml(cls, ic, icon, lbl, val, sub, pct, fill, mL, mR) {
     '<div class="kpi-fill ' + fill + '" style="width:' + Math.min(pct, 100) + '%"></div></div>' +
     '<div class="kpi-meta"><span>' + mL + '</span><span>' + mR + '</span></div></div></div>';
 }
-function cardsMarkup(yr, stageKey) {
-  var s = computeCards(yr, stageKey), st = STAGE_LABEL[stageKey];
+function cardsMarkup(yr, stage) {
+  var s = computeCards(yr, stage), st = STAGE_LABEL[stage];
   function p(x) { return s.total > 0 ? (x / s.total * 100) : 0; }
   return (
-    cardHtml('k-tot', 'g', 'sack-dollar', 'Total Anggaran (Ops + Non Ops)', fmtRp(s.total), 'PAGU ' + st + ' · TA ' + yr, 100, 'b', 'Keseluruhan usulan', recordsForYear(yr).length + ' baris') +
+    cardHtml('k-tot', 'g', 'sack-dollar', 'Total Anggaran (Ops + Non Ops)', fmtRp(s.total), 'PAGU ' + st + ' · TA ' + yr, 100, 'b', 'Keseluruhan usulan', s.baris + ' baris') +
     cardHtml('k-ops', 't', 'gear', 'Total Belanja Operasional', fmtRp(s.ops), p(s.ops).toFixed(1) + '% dari total', p(s.ops), 't', 'Operasional / Total', p(s.ops).toFixed(1) + '%') +
     cardHtml('k-nonops', 'v', 'diagram-project', 'Total Belanja Non Operasional', fmtRp(s.nonops), p(s.nonops).toFixed(1) + '% dari total', p(s.nonops), 't', 'Non Ops / Total', p(s.nonops).toFixed(1) + '%') +
     cardHtml('k-peg', 'b', 'user-tie', 'Total Belanja Pegawai', fmtRp(s.pegawai), p(s.pegawai).toFixed(1) + '% dari total', p(s.pegawai), 'b', 'Pegawai / Total', p(s.pegawai).toFixed(1) + '%') +
@@ -149,16 +227,16 @@ function renderCards() {
   var html = cardsMarkup(APP.year, APP.stage);
   var a = document.getElementById('kpiRow'); if (a) a.innerHTML = html;
   var b = document.getElementById('pengKpiRow'); if (b) b.innerHTML = html;
-  var sub = document.getElementById('dashSub'); if (sub) sub.textContent = 'PIP MAKASSAR — TA ' + APP.year + ' · PAGU ' + STAGE_LABEL[APP.stage];
-  var ps = document.getElementById('pengSub'); if (ps) ps.textContent = 'Informasi anggaran yang telah diinput — TA ' + APP.year + ' · PAGU ' + STAGE_LABEL[APP.stage];
+  var sub = document.getElementById('dashSub'); if (sub) sub.textContent = APP.satker + ' — TA ' + APP.year + ' · PAGU ' + STAGE_LABEL[APP.stage];
+  var ps = document.getElementById('pengSub'); if (ps) ps.textContent = 'Data tersimpan — TA ' + APP.year + ' · PAGU ' + STAGE_LABEL[APP.stage];
 }
 
-/* ── Chart Usulan Anggaran ── */
+/* ── Chart Usulan ── */
 var CHARTS = { usulan: null, pie1: null, pie2: null };
 function chartReady() { return typeof Chart !== 'undefined'; }
 function gridColor() { return getComputedStyle(document.body).getPropertyValue('--bd') || '#e2e8f0'; }
 function tickColor() { return getComputedStyle(document.body).getPropertyValue('--t3') || '#8896a7'; }
-function stageTotals(yr) { return STAGES.map(function (s) { var t = 0; recordsForYear(yr).forEach(function (r) { t += amountOf(r, s.key); }); return t; }); }
+function stageTotals(yr) { return STAGES.map(function (s) { var t = 0; recordsView(yr, s.key).forEach(function (r) { t += amountOf(r); }); return t; }); }
 function renderUsulanChart() {
   if (!chartReady()) return;
   var ctx = document.getElementById('usulanChart'); if (!ctx) return;
@@ -190,7 +268,7 @@ function renderUsulanChart() {
 }
 
 /* ── Pie ── */
-function jenisComposition(rows, stageKey) { var c = { pegawai: 0, barang: 0, modal: 0 }; rows.forEach(function (r) { c[r.jenis] += amountOf(r, stageKey); }); return c; }
+function jenisComposition(rows) { var c = { pegawai: 0, barang: 0, modal: 0 }; rows.forEach(function (r) { c[r.jenis] += amountOf(r); }); return c; }
 function renderPie(canvasId, legendId, comp) {
   if (!chartReady()) return null;
   var ctx = document.getElementById(canvasId); if (!ctx) return null;
@@ -204,10 +282,10 @@ function renderPie(canvasId, legendId, comp) {
   if (leg) leg.innerHTML = order.map(function (k) { var p = total > 0 ? (comp[k] / total * 100).toFixed(1) : '0.0'; return '<div class="leg-row"><span class="leg-dot" style="background:' + JENIS_COLOR[k] + '"></span>' + JENIS_LABEL[k] + '<span class="leg-pct">' + p + '%</span></div>'; }).join('');
   return chart;
 }
-function renderPie1() { if (CHARTS.pie1) { CHARTS.pie1.destroy(); CHARTS.pie1 = null; } var rows = recordsForYear(APP.year).filter(function (r) { return APP.pie1Src === 'gabungan' ? true : r.sd === APP.pie1Src; }); CHARTS.pie1 = renderPie('pie1Chart', 'pie1Legend', jenisComposition(rows, APP.stage)); }
-function renderPie2() { if (CHARTS.pie2) { CHARTS.pie2.destroy(); CHARTS.pie2 = null; } var rows = recordsForYear(APP.year).filter(function (r) { return APP.pie2Cat === 'gabungan' ? true : r.kategori === APP.pie2Cat; }); CHARTS.pie2 = renderPie('pie2Chart', 'pie2Legend', jenisComposition(rows, APP.stage)); }
+function renderPie1() { if (CHARTS.pie1) { CHARTS.pie1.destroy(); CHARTS.pie1 = null; } var rows = recordsView(APP.year, APP.stage).filter(function (r) { return APP.pie1Src === 'gabungan' ? true : r.sd === APP.pie1Src; }); CHARTS.pie1 = renderPie('pie1Chart', 'pie1Legend', jenisComposition(rows)); }
+function renderPie2() { if (CHARTS.pie2) { CHARTS.pie2.destroy(); CHARTS.pie2 = null; } var rows = recordsView(APP.year, APP.stage).filter(function (r) { return APP.pie2Cat === 'gabungan' ? true : r.kategori === APP.pie2Cat; }); CHARTS.pie2 = renderPie('pie2Chart', 'pie2Legend', jenisComposition(rows)); }
 
-/* ── DAFTAR USULAN (pohon, gaya gambar 2) ───────────────────────────── */
+/* ── DAFTAR USULAN (pohon, gaya gambar 2) ── */
 function ufApply(rows) {
   var f = APP.uf, q = ((document.getElementById('ufQ') || {}).value || '').toLowerCase().trim();
   return rows.filter(function (r) {
@@ -217,10 +295,7 @@ function ufApply(rows) {
     if (f.akun && r.akun !== f.akun) return false;
     if (f.detail && r.detail_belanja !== f.detail) return false;
     if (f.sd && r.sd !== f.sd) return false;
-    if (q) {
-      var hay = [kodeOf(r), r.detail_akun, r.detail_belanja, r.akun, r.prog, r.kro, r.ro].join(' ').toLowerCase();
-      if (hay.indexOf(q) === -1) return false;
-    }
+    if (q) { var hay = [kodeOf(r), r.detail_akun, r.detail_belanja, r.akun, r.prog, r.kro, r.ro].join(' ').toLowerCase(); if (hay.indexOf(q) === -1) return false; }
     return true;
   });
 }
@@ -229,44 +304,35 @@ function groupByKode(rows) {
   rows.forEach(function (r) {
     var k = kodeOf(r);
     if (!map[k]) { map[k] = { kode: k, akun: r.akun, detail_akun: r.detail_akun, sd: r.sd, prog: r.prog, keg_nama: r.keg_nama, ro: r.ro, items: [], total: 0 }; order.push(k); }
-    map[k].items.push(r); map[k].total += amountOf(r, APP.stage);
+    map[k].items.push(r); map[k].total += amountOf(r);
     if (map[k].sd !== r.sd) map[k].sd = 'mix';
   });
   return order.map(function (k) { return map[k]; });
 }
 function sdChip(sd) { return sd === 'mix' ? '<span class="src-rm">RM/BLU</span>' : '<span class="' + (sd === 'blu' ? 'src-blu' : 'src-rm') + '">' + (sd === 'blu' ? 'BLU' : 'RM') + '</span>'; }
+function catChip(kat) { return '<span class="' + (kat === 'ops' ? 'cat-ops' : 'cat-nonops') + '">' + (kat === 'ops' ? 'OPS' : 'NON OPS') + '</span>'; }
 function populateUsulanFilters() {
-  var rows = recordsForYear(APP.year);
+  var rows = recordsView(APP.year, APP.stage);
   function uniq(key) { var s = {}; rows.forEach(function (r) { s[r[key]] = true; }); return Object.keys(s).sort(); }
-  var defs = [
-    ['ufProg', 'prog', 'Semua Program', uniq('prog')],
-    ['ufKro', 'kro', 'Semua KRO', uniq('kro')],
-    ['ufRo', 'ro', 'Semua RO', uniq('ro')],
-    ['ufAkun', 'akun', 'Semua Akun', uniq('akun')],
-    ['ufDetail', 'detail', 'Semua Detail', uniq('detail_belanja')],
-  ];
+  var defs = [['ufProg', 'prog', 'Semua Program', uniq('prog')], ['ufKro', 'kro', 'Semua KRO', uniq('kro')], ['ufRo', 'ro', 'Semua RO', uniq('ro')], ['ufAkun', 'akun', 'Semua Akun', uniq('akun')], ['ufDetail', 'detail', 'Semua Detail', uniq('detail_belanja')]];
   defs.forEach(function (d) {
     var sel = document.getElementById(d[0]); if (!sel) return;
     var cur = APP.uf[d[1]];
-    sel.innerHTML = '<option value="">' + d[2] + '</option>' + d[3].map(function (v) {
-      return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>';
-    }).join('');
+    sel.innerHTML = '<option value="">' + d[2] + '</option>' + d[3].map(function (v) { return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
   });
 }
 function renderUsulanList() {
   var headEl = document.getElementById('usulanHead');
   if (headEl) headEl.innerHTML = ['KODE', 'URAIAN / AKUN', 'SUMBER', 'NILAI USULAN'].map(function (c, i) { return '<th' + (i === 3 ? ' style="text-align:right"' : '') + '>' + c + '</th>'; }).join('');
-  var groups = groupByKode(ufApply(recordsForYear(APP.year)));
-  var totalGroups = groups.length;
-  var from = (APP.usulanPage - 1) * APP.PP, slice = groups.slice(from, from + APP.PP);
+  var groups = groupByKode(ufApply(recordsView(APP.year, APP.stage)));
+  var totalGroups = groups.length, from = (APP.usulanPage - 1) * APP.PP, slice = groups.slice(from, from + APP.PP);
   var grand = 0; groups.forEach(function (g) { grand += g.total; });
   var badge = document.getElementById('usulanBadge'); if (badge) badge.textContent = totalGroups + ' Kegiatan';
-  var info = document.getElementById('usulanInfo');
-  if (info) info.textContent = totalGroups === 0 ? 'Tidak ada usulan' : ('Menampilkan ' + (from + 1) + '–' + Math.min(from + APP.PP, totalGroups) + ' dari ' + totalGroups + ' · Total ' + fmtRp(grand));
+  var info = document.getElementById('usulanInfo'); if (info) info.textContent = totalGroups === 0 ? 'Tidak ada usulan' : ('Menampilkan ' + (from + 1) + '–' + Math.min(from + APP.PP, totalGroups) + ' dari ' + totalGroups + ' · Total ' + fmtRp(grand));
   var body = document.getElementById('usulanBody');
   if (body) {
     if (!slice.length) {
-      body.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:34px;color:var(--t3)"><i class="fas fa-inbox" style="font-size:22px;display:block;margin-bottom:8px"></i>Belum ada usulan</td></tr>';
+      body.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:34px;color:var(--t3)"><i class="fas fa-inbox" style="font-size:22px;display:block;margin-bottom:8px"></i>Belum ada usulan pada PAGU ' + STAGE_LABEL[APP.stage] + '</td></tr>';
     } else {
       var html = '';
       slice.forEach(function (g) {
@@ -276,14 +342,11 @@ function renderUsulanList() {
           '<td><div class="uraian-cell">' + esc(g.detail_akun) + '<small>' + esc(g.prog) + ' · ' + esc(g.keg_nama) + ' — RO ' + esc(g.ro) + '</small></div></td>' +
           '<td>' + sdChip(g.sd) + '</td>' +
           '<td class="mono" style="text-align:right;font-weight:700;color:var(--t1)">' + fmtRp(g.total) + '</td></tr>';
-        if (open) {
-          g.items.forEach(function (r) {
-            html += '<tr class="detail-row"><td></td>' +
-              '<td>' + esc(r.detail_belanja) + ' <span style="color:var(--t3)">(' + r.vol + ' ' + esc(r.sat) + ' × ' + fmtRp(r.hrg_sat) + ')</span></td>' +
-              '<td></td>' +
-              '<td class="mono" style="text-align:right">' + fmtRp(amountOf(r, APP.stage)) + '</td></tr>';
-          });
-        }
+        if (open) g.items.forEach(function (r) {
+          html += '<tr class="detail-row"><td></td>' +
+            '<td>' + esc(r.detail_belanja) + ' <span style="color:var(--t3)">(' + r.vol + ' ' + esc(r.sat) + ' × ' + fmtRp(r.hrg_sat) + ')</span></td><td></td>' +
+            '<td class="mono" style="text-align:right">' + fmtRp(amountOf(r)) + '</td></tr>';
+        });
       });
       body.innerHTML = html;
     }
@@ -308,16 +371,18 @@ function renderPagin(elId, total, page, pp, cb) {
   el.innerHTML = h;
 }
 
-/* ── DATABASE (gaya gambar 3) di Modul Penganggaran ─────────────────── */
-var DB_COLS = ['BA', 'Prog', 'Keg', 'KRO', 'RO', 'Komp', 'S.Komp', 'Akun', 'Detail Akun', 'Detail Belanja', 'SD', 'KATEG', 'Nilai (PAGU ' + '·)'];
+/* ── DATABASE (gaya gambar: 16 kolom) di Modul Penganggaran ── */
 function renderDatabase() {
   var head = document.getElementById('dbHead');
-  var cols = ['BA', 'Prog', 'Keg', 'KRO', 'RO', 'Komp', 'S.Komp', 'Akun', 'Detail Akun', 'Detail Belanja', 'SD', 'KATEG', 'Nilai (PAGU ' + STAGE_LABEL[APP.stage] + ')'];
-  if (head) head.innerHTML = cols.map(function (c, i) { return '<th' + (i === 12 ? ' style="text-align:right"' : '') + '>' + c + '</th>'; }).join('');
-  var rows = recordsForYear(APP.year);
+  var cols = ['BA', 'PROG', 'KEG', 'KRO', 'RO', 'KOMP', 'S.KOMP', 'AKUN', 'DETAIL AKUN', 'DETAIL BELANJA', 'VOL', 'SAT', 'HRG SAT', 'JUMLAH', 'SD', 'KATGR'];
+  if (head) head.innerHTML = cols.map(function (c) {
+    var right = (c === 'VOL' || c === 'HRG SAT' || c === 'JUMLAH') ? ' style="text-align:right"' : '';
+    return '<th' + right + '>' + c + '</th>';
+  }).join('');
+  var rows = recordsView(APP.year, APP.stage);
   var from = (APP.dbPage - 1) * APP.PP, slice = rows.slice(from, from + APP.PP);
   var badge = document.getElementById('dbBadge'); if (badge) badge.textContent = rows.length + ' Baris';
-  var info = document.getElementById('dbInfo'); if (info) info.textContent = rows.length === 0 ? 'Belum ada data' : ('Menampilkan ' + (from + 1) + '–' + Math.min(from + APP.PP, rows.length) + ' dari ' + rows.length);
+  var info = document.getElementById('dbInfo'); if (info) info.textContent = rows.length === 0 ? 'Belum ada data tersimpan pada PAGU ' + STAGE_LABEL[APP.stage] : ('PAGU ' + STAGE_LABEL[APP.stage] + ' · ' + (from + 1) + '–' + Math.min(from + APP.PP, rows.length) + ' dari ' + rows.length);
   var body = document.getElementById('dbBody');
   if (body) body.innerHTML = slice.length ? slice.map(function (r) {
     return '<tr>' +
@@ -325,25 +390,25 @@ function renderDatabase() {
       '<td class="mono">' + r.kro + '</td><td class="mono">' + r.ro + '</td><td class="mono">' + r.komp + '</td>' +
       '<td class="mono">' + r.subkomp + '</td><td class="mono">' + r.akun + '</td>' +
       '<td>' + esc(r.detail_akun) + '</td><td>' + esc(r.detail_belanja) + '</td>' +
-      '<td>' + sdChip(r.sd) + '</td>' +
-      '<td><span class="' + (r.kategori === 'ops' ? 'cat-ops' : 'cat-nonops') + '">' + (r.kategori === 'ops' ? 'OPS' : 'NON OPS') + '</span></td>' +
-      '<td class="mono" style="text-align:right;font-weight:600;color:var(--t1)">' + fmtRp(amountOf(r, APP.stage)) + '</td></tr>';
-  }).join('') : '<tr><td colspan="13" style="text-align:center;padding:32px;color:var(--t3)">Belum ada data tersimpan</td></tr>';
+      '<td class="mono" style="text-align:right">' + r.vol + '</td><td>' + esc(r.sat) + '</td>' +
+      '<td class="mono" style="text-align:right">' + fmtRp(r.hrg_sat) + '</td>' +
+      '<td class="mono" style="text-align:right;font-weight:600;color:var(--t1)">' + fmtRp(amountOf(r)) + '</td>' +
+      '<td>' + sdChip(r.sd) + '</td><td>' + catChip(r.kategori) + '</td></tr>';
+  }).join('') : '<tr><td colspan="16" style="text-align:center;padding:32px;color:var(--t3)">Belum ada data tersimpan</td></tr>';
   renderPagin('dbPagin', rows.length, APP.dbPage, APP.PP, 'goDb');
 }
 function goDb(p) { APP.dbPage = p; renderDatabase(); }
 
-/* ── Download Kertas Kerja (CSV) ── */
+/* ── Download Kertas Kerja (CSV, semua tahap tahun aktif) ── */
 function csvCell(v) { v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
 function downloadKertasKerja() {
   var rows = recordsForYear(APP.year);
   if (!rows.length) { toast('error', 'Tidak Ada Data', 'Belum ada usulan untuk diunduh.'); return; }
-  var head = ['BA', 'Program', 'Kegiatan', 'KRO', 'RO', 'Komponen', 'Sub Komponen', 'Akun', 'Detail Akun', 'Detail Belanja', 'SD', 'Kategori', 'Vol', 'Satuan', 'Harga Satuan', 'PAGU Kebutuhan', 'PAGU Indikatif', 'PAGU Anggaran', 'PAGU Alokasi'];
+  var head = ['Tahap', 'BA', 'Program', 'Kegiatan', 'KRO', 'RO', 'Komponen', 'Sub Komponen', 'Akun', 'Detail Akun', 'Detail Belanja', 'Vol', 'Satuan', 'Harga Satuan', 'Jumlah', 'SD', 'Kategori'];
   var lines = [head.join(';')];
   rows.forEach(function (r) {
-    lines.push([r.ba, r.prog, r.keg, r.kro, r.ro, r.komp, r.subkomp, r.akun, r.detail_akun, r.detail_belanja,
-      r.sd.toUpperCase(), (r.kategori === 'ops' ? 'OPS' : 'NON OPS'), r.vol, r.sat, r.hrg_sat,
-      r.pagu.kebutuhan, r.pagu.indikatif, r.pagu.anggaran, r.pagu.alokasi].map(csvCell).join(';'));
+    lines.push([STAGE_LABEL[r.tahap], r.ba, r.prog, r.keg, r.kro, r.ro, r.komp, r.subkomp, r.akun, r.detail_akun, r.detail_belanja,
+      r.vol, r.sat, r.hrg_sat, amountOf(r), r.sd.toUpperCase(), (r.kategori === 'ops' ? 'OPS' : 'NON OPS')].map(csvCell).join(';'));
   });
   var blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   var url = URL.createObjectURL(blob), a = document.createElement('a');
@@ -352,7 +417,7 @@ function downloadKertasKerja() {
   toast('success', 'Kertas Kerja Diunduh', 'TA ' + APP.year + ' — ' + rows.length + ' baris (CSV, dapat dibuka di Excel).');
 }
 
-/* ── Pengaturan Data: referensi kode (BA..Detail Belanja) ── */
+/* ── Pengaturan Data: referensi kode ── */
 var REF_COLS = ['BA', 'Program', 'Kegiatan', 'KRO', 'RO', 'Komponen', 'Sub Komponen', 'Akun', 'Detail Akun', 'Detail Belanja'];
 var REF_ROWS = [
   ['022', '12.DL', '3996', 'SAB', '005', '051', 'A', '525112', 'Belanja Barang', ''],
@@ -371,18 +436,14 @@ function renderRefTable() {
   if (head) head.innerHTML = REF_COLS.map(function (c) { return '<th>' + c + '</th>'; }).join('');
   var body = document.getElementById('codeBody');
   if (body) body.innerHTML = REF_ROWS.map(function (r) {
-    return '<tr>' + r.map(function (c, i) {
-      var val = (i === 9 && !c) ? '<span style="color:var(--t3)">—</span>' : esc(c);
-      return '<td class="' + (i <= 7 ? 'mono' : '') + '">' + val + '</td>';
-    }).join('') + '</tr>';
+    return '<tr>' + r.map(function (c, i) { var val = (i === 9 && !c) ? '<span style="color:var(--t3)">—</span>' : esc(c); return '<td class="' + (i <= 7 ? 'mono' : '') + '">' + val + '</td>'; }).join('') + '</tr>';
   }).join('');
 }
 
 /* ── Manajemen Akun ── */
 function renderUsers() {
   var body = document.getElementById('userBody'); if (!body) return;
-  body.innerHTML = '<tr><td class="mono">admin</td><td>Administrator</td>' +
-    '<td><span class="pct-badge pct-m">Admin</span></td><td><span class="pct-badge pct-h">Aktif</span></td></tr>';
+  body.innerHTML = '<tr><td class="mono">admin</td><td>Administrator</td><td><span class="pct-badge pct-m">Admin</span></td><td><span class="pct-badge pct-h">Aktif</span></td></tr>';
 }
 
 /* ── Render all ── */
@@ -392,7 +453,7 @@ function renderAll() {
 }
 
 /* ── Handlers ── */
-function onPaguChange(v) { APP.stage = v; renderAll(); }
+function onPaguChange(v) { APP.stage = v; APP.usulanPage = 1; APP.dbPage = 1; APP.expanded = {}; APP.uf = { prog: '', kro: '', ro: '', akun: '', detail: '', sd: '' }; renderAll(); }
 function onYearChange(v) { APP.year = v; APP.usulanPage = 1; APP.dbPage = 1; APP.expanded = {}; APP.uf = { prog: '', kro: '', ro: '', akun: '', detail: '', sd: '' }; renderAll(); }
 function onUsulanMode(mode, el) { APP.usulanMode = mode; document.querySelectorAll('#usulanModePills .pill').forEach(function (p) { p.classList.remove('active'); }); if (el) el.classList.add('active'); renderUsulanChart(); }
 function onPie1Src(src, el) { APP.pie1Src = src; document.querySelectorAll('#pie1Tabs .src-tab').forEach(function (t) { t.classList.remove('active'); }); if (el) el.classList.add('active'); renderPie1(); }
@@ -430,19 +491,21 @@ function populateYears() {
   sel.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '"' + (y === APP.year ? ' selected' : '') + '>TA ' + y + '</option>'; }).join('');
 }
 function init() {
-  APP.records = buildSeed();
   populateYears();
   var ps = document.getElementById('paguSelect'); if (ps) ps.value = APP.stage;
-  renderAll(); renderUsers(); renderRefTable();
+  renderUsers(); renderRefTable();
+  renderAll();
+  loadFromSupabase();
 }
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', init);
 
 /* Ekspor untuk pengujian Node */
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    APP: APP, kodeToJenis: kodeToJenis, pagu: pagu, buildSeed: buildSeed, GROUPS: GROUPS,
+    APP: APP, kodeToJenis: kodeToJenis, buildSeed: buildSeed, GROUPS: GROUPS, STAGE_FACTOR: STAGE_FACTOR,
     computeCards: computeCards, jenisComposition: jenisComposition, stageTotals: stageTotals,
-    recordsForYear: recordsForYear, kodeOf: kodeOf, groupByKode: groupByKode, csvCell: csvCell,
-    fmtRp: fmtRp, fmtM: fmtM, yearOptions: yearOptions, STAGES: STAGES,
+    recordsForYear: recordsForYear, recordsView: recordsView, kodeOf: kodeOf, groupByKode: groupByKode,
+    csvCell: csvCell, mapRow: mapRow, toDbRow: toDbRow, amountOf: amountOf,
+    fmtRp: fmtRp, fmtM: fmtM, yearOptions: yearOptions, STAGES: STAGES, UPSERT_KEY: UPSERT_KEY, TABLE: TABLE,
   };
 }
