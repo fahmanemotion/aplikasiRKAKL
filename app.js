@@ -271,7 +271,7 @@ function buildSeed() {
 function recordsForYear(yr) { return APP.records.filter(function (r) { return r.ta === String(yr); }); }
 function recordsView(yr, stage) { return APP.records.filter(function (r) { return r.ta === String(yr) && r.tahap === stage; }); }
 function amountOf(r) { return +r.jumlah || 0; }
-function kodeOf(r) { return r.keg + '.' + r.kro + '.' + r.ro + '.' + r.akun; }
+function kodeOf(r) { return [r.ba, r.prog, r.keg, r.kro, r.ro, r.komp, r.subkomp, r.akun].join('.'); }
 
 /* ── 6 Kartu ── */
 function computeCards(yr, stage) {
