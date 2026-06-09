@@ -18,6 +18,8 @@ var SUPA_REST = SUPA_URL + '/rest/v1';
 var SUPA_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96d2RlaG5xamlwYnpkZXFwYW1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMDA0MTYsImV4cCI6MjA5NjU3NjQxNn0.uRO3dtZaH0bAoj5K8A_eLpQRgeaJWTKXM6icDazZIwg';
 var TABLE = 'usulan_belanja';
 var UPSERT_KEY = 'on_conflict=ta,tahap,ba,prog,keg,kro,ro,komp,subkomp,akun,detail_belanja';
+var AUTH_URL = SUPA_URL + '/auth/v1';
+var SESSION_KEY = 'sipra_session';
 
 var APP = {
   theme: 'light',
@@ -30,6 +32,7 @@ var APP = {
   expanded: {},
   usulanPage: 1, dbPage: 1, PP: 12,
   satker: 'PIP MAKASSAR',
+  session: null,
   records: [],
 };
 
@@ -65,11 +68,86 @@ function toast(type, title, msg) {
 }
 function comingSoon() { toast('info', 'Segera Hadir', 'Metode input/unggah akan ditambahkan kemudian.'); }
 
+/* ── Autentikasi (Supabase Auth) ───────────────────────────────────── */
+function authToken() { return (APP.session && APP.session.access_token) || SUPA_KEY; }
+function isLoggedIn() { return !!(APP.session && APP.session.access_token); }
+function loadSession() { try { var s = localStorage.getItem(SESSION_KEY); if (s) APP.session = JSON.parse(s); } catch (e) { } }
+function saveSession() { try { if (APP.session) localStorage.setItem(SESSION_KEY, JSON.stringify(APP.session)); else localStorage.removeItem(SESSION_KEY); } catch (e) { } }
+async function login(email, password) {
+  var res = await fetch(AUTH_URL + '/token?grant_type=password', {
+    method: 'POST', headers: { apikey: SUPA_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email, password: password }),
+  });
+  var data = await res.json().catch(function () { return {}; });
+  if (!res.ok) throw new Error(data.error_description || data.msg || data.error || ('Login gagal (' + res.status + ')'));
+  APP.session = { access_token: data.access_token, refresh_token: data.refresh_token, user: data.user || { email: email } };
+  saveSession();
+}
+async function refreshSession() {
+  try {
+    if (!APP.session || !APP.session.refresh_token) return false;
+    var res = await fetch(AUTH_URL + '/token?grant_type=refresh_token', {
+      method: 'POST', headers: { apikey: SUPA_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: APP.session.refresh_token }),
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) { APP.session = null; saveSession(); updateAuthUI(); return false; }
+    APP.session = { access_token: data.access_token, refresh_token: data.refresh_token, user: data.user || APP.session.user };
+    saveSession(); return true;
+  } catch (e) { return false; }
+}
+function logout() {
+  try { fetch(AUTH_URL + '/logout', { method: 'POST', headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken() } }); } catch (e) { }
+  APP.session = null; saveSession(); updateAuthUI(); renderUsers();
+  toast('info', 'Keluar', 'Anda telah keluar. Aplikasi dalam mode hanya-baca.');
+}
+// Tulis dengan retry sekali bila token kedaluwarsa
+async function supaWrite(method, table, opts) {
+  try { return await supaFetch(method, table, opts); }
+  catch (e) {
+    if (isLoggedIn() && /(^|\D)40[13](\D|$)|jwt|token/i.test(e.message)) {
+      if (await refreshSession()) return await supaFetch(method, table, opts);
+    }
+    throw e;
+  }
+}
+function requireLogin(aksi) {
+  if (isLoggedIn()) return true;
+  toast('info', 'Perlu Masuk', 'Silakan masuk dulu untuk ' + (aksi || 'menyimpan data') + '.');
+  openLogin(); return false;
+}
+function updateAuthUI() {
+  var chip = document.getElementById('authChip'); if (!chip) return;
+  if (isLoggedIn()) {
+    var em = (APP.session.user && APP.session.user.email) || 'pengguna';
+    chip.innerHTML = '<span class="auth-email" title="' + esc(em) + '"><i class="fas fa-circle-user"></i> ' + esc(em) + '</span>' +
+      '<button class="btn-sec auth-btn" onclick="logout()"><i class="fas fa-right-from-bracket"></i> Keluar</button>';
+  } else {
+    chip.innerHTML = '<button class="btn-primary auth-btn" onclick="openLogin()"><i class="fas fa-right-to-bracket"></i> Masuk</button>';
+  }
+}
+function openLogin() { var m = document.getElementById('loginModal'); if (m) { m.classList.add('open'); var e = document.getElementById('lgEmail'); if (e) setTimeout(function () { e.focus(); }, 60); } }
+function closeLogin() { var m = document.getElementById('loginModal'); if (m) m.classList.remove('open'); }
+async function submitLogin() {
+  var email = (gv('lgEmail') || '').trim(), pw = gv('lgPass') || '';
+  if (!email || !pw) { toast('error', 'Lengkapi Data', 'Email dan kata sandi wajib diisi.'); return; }
+  var btn = document.getElementById('lgBtn'); if (btn) btn.disabled = true;
+  try {
+    await login(email, pw);
+    closeLogin();
+    var p = document.getElementById('lgPass'); if (p) p.value = '';
+    updateAuthUI(); renderUsers();
+    toast('success', 'Berhasil Masuk', 'Selamat datang, ' + ((APP.session.user && APP.session.user.email) || email) + '.');
+  } catch (e) {
+    toast('error', 'Login Gagal', e.message);
+  } finally { if (btn) btn.disabled = false; }
+}
+
 /* ── Lapisan Supabase (REST) ── */
 async function supaFetch(method, table, opts) {
   opts = opts || {};
   var url = SUPA_REST + '/' + table + (opts.query ? '?' + opts.query : '');
-  var headers = { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json' };
+  var headers = { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken(), 'Content-Type': 'application/json' };
   var prefer = [];
   if (opts.returning) prefer.push('return=representation');
   if (opts.upsert) prefer.push('resolution=merge-duplicates');
@@ -127,11 +205,12 @@ async function loadFromSupabase() {
   }
 }
 async function seedToSupabase() {
+  if (!requireLogin('mengisi data contoh')) return;
   if (!confirm('Isi database dengan DATA CONTOH (3 tahun × 4 tahap PAGU) untuk uji coba?\nBaris dengan kunci sama akan diperbarui (tidak menggandakan).')) return;
   try {
     var rows = buildSeed().map(toDbRow);
     for (var i = 0; i < rows.length; i += 200) {
-      await supaFetch('POST', TABLE, { query: UPSERT_KEY, body: rows.slice(i, i + 200), upsert: true });
+      await supaWrite('POST', TABLE, { query: UPSERT_KEY, body: rows.slice(i, i + 200), upsert: true });
     }
     toast('success', 'Data Contoh Tersimpan', rows.length + ' baris dikirim ke Supabase. Memuat ulang…');
     await loadFromSupabase();
@@ -420,6 +499,7 @@ function downloadKertasKerja() {
 /* ── Form Input Usulan (modal) ─────────────────────────────────────── */
 function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
 function openInput() {
+  if (!requireLogin('input usulan')) return;
   var ta = document.getElementById('inTa');
   if (ta) ta.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '"' + (y === APP.year ? ' selected' : '') + '>TA ' + y + '</option>'; }).join('');
   var th = document.getElementById('inTahap');
@@ -454,7 +534,7 @@ async function submitInput() {
   if (rec.vol <= 0 || rec.hrg_sat <= 0) { toast('error', 'Lengkapi Data', 'Volume dan Harga Satuan harus lebih dari 0.'); return; }
   var btn = document.getElementById('inSaveBtn'); if (btn) btn.disabled = true;
   try {
-    await supaFetch('POST', TABLE, { query: UPSERT_KEY, body: [toDbRow(rec)], upsert: true });
+    await supaWrite('POST', TABLE, { query: UPSERT_KEY, body: [toDbRow(rec)], upsert: true });
     toast('success', 'Tersimpan', 'Usulan "' + rec.detail_belanja + '" (' + fmtRp(rec.vol * rec.hrg_sat) + ') disimpan.');
     closeInput();
     // Tampilkan pada TA & tahap yang baru disimpan
@@ -493,7 +573,18 @@ function renderRefTable() {
 /* ── Manajemen Akun ── */
 function renderUsers() {
   var body = document.getElementById('userBody'); if (!body) return;
-  body.innerHTML = '<tr><td class="mono">admin</td><td>Administrator</td><td><span class="pct-badge pct-m">Admin</span></td><td><span class="pct-badge pct-h">Aktif</span></td></tr>';
+  if (isLoggedIn()) {
+    var em = (APP.session.user && APP.session.user.email) || 'pengguna';
+    body.innerHTML = '<tr><td class="mono">' + esc(em) + '</td><td>Pengguna Login</td>' +
+      '<td><span class="pct-badge pct-m">Authenticated</span></td><td><span class="pct-badge pct-h">Aktif</span></td></tr>';
+  } else {
+    body.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:26px;color:var(--t3)">' +
+      'Belum masuk — aplikasi dalam mode <strong>hanya-baca</strong>. Klik <strong>Masuk</strong> untuk menulis data.</td></tr>';
+  }
+  var note = document.getElementById('userNote');
+  if (note) note.innerHTML = isLoggedIn()
+    ? '<i class="fas fa-shield-halved" style="color:var(--teal)"></i> Anda masuk sebagai <strong>' + esc((APP.session.user && APP.session.user.email) || '') + '</strong>. Semua aksi tulis memakai akun ini.'
+    : '<i class="fas fa-lock" style="color:var(--t3)"></i> Akun login dikelola di Supabase → Authentication → Users. Untuk pemakaian internal, matikan pendaftaran mandiri (sign-up).';
 }
 
 /* ── Render all ── */
@@ -541,9 +632,10 @@ function populateYears() {
   sel.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '"' + (y === APP.year ? ' selected' : '') + '>TA ' + y + '</option>'; }).join('');
 }
 function init() {
+  loadSession();
   populateYears();
   var ps = document.getElementById('paguSelect'); if (ps) ps.value = APP.stage;
-  renderUsers(); renderRefTable();
+  updateAuthUI(); renderUsers(); renderRefTable();
   renderAll();
   loadFromSupabase();
 }
@@ -556,6 +648,7 @@ if (typeof module !== 'undefined' && module.exports) {
     computeCards: computeCards, jenisComposition: jenisComposition, stageTotals: stageTotals,
     recordsForYear: recordsForYear, recordsView: recordsView, kodeOf: kodeOf, groupByKode: groupByKode,
     csvCell: csvCell, mapRow: mapRow, toDbRow: toDbRow, amountOf: amountOf,
+    authToken: authToken, isLoggedIn: isLoggedIn,
     fmtRp: fmtRp, fmtM: fmtM, yearOptions: yearOptions, STAGES: STAGES, UPSERT_KEY: UPSERT_KEY, TABLE: TABLE,
   };
 }

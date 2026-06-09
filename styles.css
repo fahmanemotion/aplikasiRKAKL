@@ -457,3 +457,12 @@ input,select{font-family:var(--font);outline:none}
 .fld input:focus,.fld select:focus{outline:none;border-color:var(--blue)}
 .fld input[readonly]{font-weight:700;background:var(--bg);color:var(--t1)}
 @media(max-width:560px){.form-grid{grid-template-columns:1fr}}
+
+/* Auth chip topnav */
+.auth-chip{display:flex;align-items:center;gap:8px}
+.auth-chip .auth-btn{padding:7px 14px;font-size:12.5px}
+.auth-email{display:inline-flex;align-items:center;gap:6px;max-width:180px;
+  font-size:12.5px;font-weight:600;color:var(--t2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.auth-email i{color:var(--teal)}
+@media(max-width:680px){.auth-email{display:none}}
