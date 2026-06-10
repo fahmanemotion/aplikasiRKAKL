@@ -543,18 +543,21 @@ function onCascade(level) {
   }
 }
 // Akun bersifat mandiri: hanya isi Detail Akun otomatis
-function onAkunPick() {
-  var da = document.getElementById('inDetailAkun'); if (da) da.value = uraianOf('akun', gv('inAkun'));
+function refreshJenis() {
+  var j = document.getElementById('inJenis'); if (!j) return;
+  var ak = gv('inAkun');
+  j.value = ak ? JENIS_LABEL[kodeToJenis(ak)] : '';
 }
+function onAkunPick() { refreshJenis(); }
 function openInput(prefill) {
   if (!requireLogin('input usulan')) return;
   APP.editId = prefill ? String(prefill.id) : null;
-  var ta = document.getElementById('inTa');
-  if (ta) ta.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '">TA ' + y + '</option>'; }).join('');
-  var th = document.getElementById('inTahap');
-  if (th) th.innerHTML = STAGES.map(function (s) { return '<option value="' + s.key + '">' + s.label + '</option>'; }).join('');
   var s = prefill || { ta: APP.year, tahap: APP.stage, ba: '022', prog: '', keg: '', kro: '', ro: '', komp: '', subkomp: 'A', akun: '', detail_akun: '', detail_belanja: '', vol: 1, sat: '', hrg_sat: 0, sd: 'rm', kategori: 'ops' };
-  // BA & Akun (mandiri) + Program (pangkal cascade)
+  // TA & Tahap diambil otomatis dari selektor dashboard (tidak ada di modal)
+  var ctxTa = prefill ? s.ta : APP.year, ctxTahap = prefill ? s.tahap : APP.stage;
+  var ctx = document.getElementById('inCtx');
+  if (ctx) ctx.innerHTML = '<i class="fas fa-circle-info"></i> Periode mengikuti selektor dashboard: <strong>TA ' + ctxTa + '</strong> · Tahap <strong>' + (STAGE_LABEL[ctxTahap] || ctxTahap) + '</strong>';
+  // BA & Program (pangkal cascade)
   var baItems = (APP.refData.ba || []); if (!baItems.length) baItems = [{ kode: '022', uraian: 'Kementerian Perhubungan' }];
   fillRefSelect('inBa', baItems, '— pilih BA —', s.ba || '022', true);
   fillRefSelect('inProg', APP.refData.program || [], '— pilih Program —', s.prog, true);
@@ -564,17 +567,23 @@ function openInput(prefill) {
   fillRefSelect('inKro', s.keg ? childrenOf('kro', p2) : [], '— pilih KRO —', s.kro, true);
   fillRefSelect('inRo', s.kro ? childrenOf('ro', p3) : [], '— pilih RO —', s.ro, true);
   fillRefSelect('inKomp', s.ro ? childrenOf('komponen', p4) : [], '— pilih Komponen —', s.komp, true);
-  fillRefSelect('inAkun', APP.refData.akun || [], '— pilih Akun —', s.akun, true);  // Akun mandiri
-  setVal('inTa', s.ta); setVal('inTahap', s.tahap); setVal('inSubkomp', s.subkomp);
-  setVal('inDetailAkun', s.detail_akun || uraianOf('akun', s.akun)); setVal('inDetailBelanja', s.detail_belanja);
+  // Sumber Dana → memfilter Akun
+  setVal('inSd', s.sd || 'rm'); setVal('inKategori', s.kategori);
+  fillRefSelect('inAkun', childrenOf('akun', s.sd || 'rm'), '— pilih Akun —', s.akun, true);
+  setVal('inSubkomp', s.subkomp);
+  setVal('inDetailBelanja', s.detail_belanja); refreshJenis();
   setVal('inVol', s.vol); setVal('inSat', s.sat); setVal('inHrg', s.hrg_sat);
-  setVal('inSd', s.sd); setVal('inKategori', s.kategori);
   recalcJumlah();
   var ttl = document.getElementById('inModalTitle');
   if (ttl) ttl.innerHTML = '<i class="fas fa-pen-to-square" style="color:var(--blue);margin-right:8px"></i>' + (prefill ? 'Edit Usulan Belanja' : 'Input Usulan Belanja');
   var sb = document.getElementById('inSaveBtn');
   if (sb) sb.innerHTML = '<i class="fas fa-floppy-disk"></i> ' + (prefill ? 'Perbarui' : 'Simpan');
   var m = document.getElementById('inputModal'); if (m) m.classList.add('open');
+}
+// Sumber Dana berubah → Akun mengikuti (filter), kosongkan pilihan akun & detail
+function onSdChange() {
+  fillRefSelect('inAkun', childrenOf('akun', gv('inSd')), '— pilih Akun —', '', true);
+  refreshJenis();
 }
 function closeInput() { var m = document.getElementById('inputModal'); if (m) m.classList.remove('open'); APP.editId = null; }
 function recalcJumlah() {
@@ -600,11 +609,13 @@ async function deleteRow(id) {
 }
 async function submitInput() {
   var prog = gv('inProg').trim(), keg = gv('inKeg').trim(), kro = gv('inKro').trim(), ro = gv('inRo').trim();
+  var editId = APP.editId;
+  var orig = editId ? APP.records.filter(function (r) { return String(r.id) === String(editId); })[0] : null;
   var rec = {
-    ta: gv('inTa') || APP.year, tahap: gv('inTahap') || APP.stage,
+    ta: orig ? orig.ta : APP.year, tahap: orig ? orig.tahap : APP.stage,
     ba: gv('inBa').trim() || '022', prog: prog, keg: keg,
     kro: kro, ro: ro, komp: gv('inKomp').trim(), subkomp: gv('inSubkomp').trim(),
-    akun: gv('inAkun').trim(), detail_akun: gv('inDetailAkun').trim() || uraianOf('akun', gv('inAkun').trim()),
+    akun: gv('inAkun').trim(), detail_akun: uraianOf('akun', gv('inAkun').trim()),
     detail_belanja: gv('inDetailBelanja').trim(),
     vol: parseFloat(gv('inVol')) || 0, sat: gv('inSat').trim(), hrg_sat: parseFloat(gv('inHrg')) || 0,
     sd: gv('inSd') || 'rm', kategori: gv('inKategori') || 'ops',
@@ -613,7 +624,6 @@ async function submitInput() {
   };
   if (!rec.akun || !rec.detail_belanja) { toast('error', 'Lengkapi Data', 'Akun dan Detail Belanja wajib diisi.'); return; }
   if (rec.vol <= 0 || rec.hrg_sat <= 0) { toast('error', 'Lengkapi Data', 'Volume dan Harga Satuan harus lebih dari 0.'); return; }
-  var editId = APP.editId;
   var btn = document.getElementById('inSaveBtn'); if (btn) btn.disabled = true;
   try {
     if (editId) {
@@ -680,8 +690,11 @@ var REF_TABLES = [
   { key: 'kro',      table: 'ref_kro',      label: 'KRO',      full: 'KRO',      parent: 'kegiatan' },
   { key: 'ro',       table: 'ref_ro',       label: 'RO',       full: 'RO',       parent: 'kro' },
   { key: 'komponen', table: 'ref_komponen', label: 'Komponen', full: 'Komponen', parent: 'ro' },
-  { key: 'akun',     table: 'ref_akun',     label: 'Akun',     full: 'Akun (mandiri)', parent: null },
+  { key: 'akun',     table: 'ref_akun',     label: 'Akun',     full: 'Akun (per Sumber Dana)', parent: '@sd' },
 ];
+// Pilihan Sumber Dana (induk untuk Akun)
+var SD_OPTS = [{ kode: 'rm', uraian: 'Rupiah Murni (RM)' }, { kode: 'blu', uraian: 'BLU' }];
+function parentLabel(def) { return def.parent === '@sd' ? 'Sumber Dana' : refDef(def.parent).label; }
 // Rantai cascade modal Input (Akun mandiri, di luar cascade). induk = JALUR kode leluhur.
 var CASCADE = ['program', 'kegiatan', 'kro', 'ro', 'komponen'];
 var CASCADE_INPUT = { program: 'inProg', kegiatan: 'inKeg', kro: 'inKro', ro: 'inRo', komponen: 'inKomp' };
@@ -713,7 +726,7 @@ function renderKodeSection() {
   var head = document.getElementById('kodeHead');
   var hasParent = !!def.parent;
   if (head) head.innerHTML = '<th style="width:150px">Kode ' + esc(def.label) + '</th><th>Uraian ' + esc(def.label) + '</th>' +
-    (hasParent ? '<th style="width:160px">Induk (' + esc(refDef(def.parent).label) + ')</th>' : '') +
+    (hasParent ? '<th style="width:160px">Induk (' + esc(parentLabel(def)) + ')</th>' : '') +
     '<th style="width:90px;text-align:center">Aksi</th>';
   var rows = APP.refData[APP.kodeTab] || [];
   var colspan = hasParent ? 4 : 3;
@@ -742,15 +755,20 @@ function openKode(prefill) {
   var sel = document.getElementById('kdInduk');
   if (def.parent && wrap && sel) {
     wrap.style.display = '';
-    var pdef = refDef(def.parent);
-    document.getElementById('kdIndukLabel').textContent = 'Induk — ' + pdef.full;
-    var opts = (APP.refData[def.parent] || []);
-    sel.innerHTML = '<option value="">— pilih ' + esc(pdef.label) + ' —</option>' +
-      opts.map(function (o) {
-        var path = pathOf(o);
-        var lbl = o.kode + (o.uraian ? ' — ' + o.uraian : '') + (o.induk ? ' [' + o.induk + ']' : '');
-        return '<option value="' + esc(path) + '"' + (prefill && prefill.induk === path ? ' selected' : '') + '>' + esc(lbl) + '</option>';
-      }).join('');
+    document.getElementById('kdIndukLabel').textContent = 'Induk — ' + parentLabel(def);
+    if (def.parent === '@sd') {
+      sel.innerHTML = '<option value="">— pilih Sumber Dana —</option>' +
+        SD_OPTS.map(function (o) { return '<option value="' + o.kode + '"' + (prefill && prefill.induk === o.kode ? ' selected' : '') + '>' + esc(o.uraian) + '</option>'; }).join('');
+    } else {
+      var pdef = refDef(def.parent);
+      var opts = (APP.refData[def.parent] || []);
+      sel.innerHTML = '<option value="">— pilih ' + esc(pdef.label) + ' —</option>' +
+        opts.map(function (o) {
+          var path = pathOf(o);
+          var lbl = o.kode + (o.uraian ? ' — ' + o.uraian : '') + (o.induk ? ' [' + o.induk + ']' : '');
+          return '<option value="' + esc(path) + '"' + (prefill && prefill.induk === path ? ' selected' : '') + '>' + esc(lbl) + '</option>';
+        }).join('');
+    }
   } else if (wrap) { wrap.style.display = 'none'; }
   var ttl = document.getElementById('kodeModalTitle');
   if (ttl) ttl.innerHTML = '<i class="fas fa-database" style="color:var(--blue);margin-right:8px"></i>' + (prefill ? 'Edit' : 'Tambah') + ' Kode — ' + esc(def.full);

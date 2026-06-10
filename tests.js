@@ -71,7 +71,7 @@ eq(A.refDef('akun').table, 'ref_akun', 'refDef memetakan key → tabel');
 eq(A.CASCADE.join('>'), 'program>kegiatan>kro>ro>komponen', 'rantai cascade real (5 tingkat)');
 eq(A.refDef('kegiatan').parent, 'program', 'parent Kegiatan = program');
 eq(A.refDef('kro').parent, 'kegiatan', 'parent KRO = kegiatan');
-eq(A.refDef('akun').parent, null, 'Akun mandiri (tanpa induk)');
+eq(A.refDef('akun').parent, '@sd', 'Akun difilter Sumber Dana (@sd)');
 // pathOf: jalur penuh = induk + '.' + kode
 eq(A.pathOf({ kode: '12.DL', induk: '' }), '12.DL', 'pathOf top-level = kode');
 eq(A.pathOf({ kode: 'DCB', induk: '12.DL.3996' }), '12.DL.3996.DCB', 'pathOf gabung induk+kode');
@@ -85,6 +85,18 @@ A.APP.refData.kro = [
 eq(A.childrenOf('kro', '12.DL.1975').length, 2, 'childrenOf jalur 1975 → 2 KRO');
 eq(A.childrenOf('kro', '12.DL.3996').length, 2, 'childrenOf jalur 3996 → 2 KRO (DCB terpisah)');
 eq(A.uraianOf('kro', 'BMA'), 'Data', 'uraianOf mengambil uraian by kode');
+// Akun difilter sumber dana (induk = rm/blu)
+A.APP.refData.akun = [
+  { kode: '521111', uraian: 'Keperluan', induk: 'rm' },
+  { kode: '524111', uraian: 'Perjalanan', induk: 'rm' },
+  { kode: '525112', uraian: 'Barang BLU', induk: 'blu' },
+];
+eq(A.childrenOf('akun', 'rm').length, 2, 'Akun RM → 2');
+eq(A.childrenOf('akun', 'blu').length, 1, 'Akun BLU → 1');
+eq(A.kodeToJenis('511111'), 'pegawai', 'akun 51xxxx → Pegawai');
+eq(A.kodeToJenis('521211'), 'barang', 'akun 52xxxx → Barang');
+eq(A.kodeToJenis('525112'), 'barang', 'akun 525xxx (BLU) → Barang');
+eq(A.kodeToJenis('533111'), 'modal', 'akun 53xxxx → Modal');
 
 console.log('\n' + '='.repeat(50));
 console.log('HASIL: ' + pass + ' lulus, ' + fail + ' gagal');

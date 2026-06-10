@@ -474,3 +474,10 @@ input,select{font-family:var(--font);outline:none}
 .ra-edit:hover{background:var(--blue-l);border-color:var(--blue)}
 .ra-del{color:var(--red)}
 .ra-del:hover{background:var(--red-l);border-color:var(--red)}
+
+/* Konteks periode di modal Input (TA & Tahap otomatis dari dashboard) */
+.in-ctx{display:flex;align-items:center;gap:8px;margin:2px 0 16px;padding:10px 14px;
+  background:var(--blue-50,#eff4ff);border:1px solid var(--blue-100,#d7e3ff);
+  border-radius:10px;font-size:12.5px;color:var(--t2);line-height:1.5}
+.in-ctx i{color:var(--blue)}
+.in-ctx strong{color:var(--t1);font-weight:700}
