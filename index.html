@@ -304,6 +304,7 @@
       </div>
       <div class="modal-body">
         <div class="form-grid" style="grid-template-columns:1fr">
+          <div class="fld" id="kdIndukWrap" style="display:none"><label id="kdIndukLabel">Induk</label><select id="kdInduk"></select></div>
           <div class="fld"><label>Kode</label><input id="kdKode" placeholder="mis. 022 / 12.DL / 3996 / SAB" /></div>
           <div class="fld"><label>Uraian</label><input id="kdUraian" placeholder="uraian/nama" /></div>
         </div>
@@ -351,23 +352,22 @@
           <div class="fld"><label>Tahun Anggaran</label><select id="inTa"></select></div>
           <div class="fld"><label>Tahap PAGU</label><select id="inTahap"></select></div>
         </div>
-        <div class="form-sec">Struktur Anggaran</div>
+        <div class="form-sec">Struktur Anggaran (pilih berjenjang)</div>
         <div class="form-grid">
-          <div class="fld"><label>BA</label><input id="inBa" value="022" /></div>
-          <div class="fld"><label>Program</label><input id="inProg" value="12.DL" /></div>
-          <div class="fld"><label>Kegiatan</label><input id="inKeg" value="3996" /></div>
-          <div class="fld"><label>KRO</label><input id="inKro" value="SAB" /></div>
-          <div class="fld"><label>RO</label><input id="inRo" value="005" /></div>
-          <div class="fld"><label>Komponen</label><input id="inKomp" value="051" /></div>
+          <div class="fld"><label>BA</label><select id="inBa"></select></div>
+          <div class="fld"><label>Kegiatan</label><select id="inKeg"></select></div>
+          <div class="fld"><label>Program</label><select id="inProg" onchange="onCascade('program')"></select></div>
+          <div class="fld"><label>KRO</label><select id="inKro" onchange="onCascade('kro')"></select></div>
+          <div class="fld"><label>RO</label><select id="inRo" onchange="onCascade('ro')"></select></div>
+          <div class="fld"><label>Komponen</label><select id="inKomp" onchange="onCascade('komponen')"></select></div>
           <div class="fld"><label>Sub Komponen</label><input id="inSubkomp" value="A" /></div>
+          <div class="fld"><label>Akun</label><select id="inAkun" onchange="onCascade('akun')"></select></div>
         </div>
-        <div class="form-sec">Akun &amp; Belanja</div>
+        <div class="form-sec">Belanja</div>
         <div class="form-grid">
-          <div class="fld"><label>Akun</label><input id="inAkun" list="akunList" oninput="onAkunInput()" placeholder="mis. 525112" /></div>
-          <div class="fld"><label>Detail Akun (uraian)</label><input id="inDetailAkun" placeholder="mis. Belanja Barang" /></div>
-          <div class="fld" style="grid-column:1/-1"><label>Detail Belanja</label><input id="inDetailBelanja" placeholder="mis. Belanja Kebutuhan Wisuda" /></div>
+          <div class="fld"><label>Detail Akun (uraian)</label><input id="inDetailAkun" placeholder="otomatis dari Akun" /></div>
+          <div class="fld"><label>Detail Belanja</label><input id="inDetailBelanja" placeholder="mis. Belanja Kebutuhan Wisuda" /></div>
         </div>
-        <datalist id="akunList"></datalist>
         <div class="form-sec">Volume &amp; Harga</div>
         <div class="form-grid">
           <div class="fld"><label>Volume</label><input id="inVol" type="number" min="0" value="1" oninput="recalcJumlah()" /></div>
@@ -379,11 +379,6 @@
         <div class="form-grid">
           <div class="fld"><label>Sumber Dana (SD)</label><select id="inSd"><option value="rm">RM</option><option value="blu">BLU</option></select></div>
           <div class="fld"><label>Kategori (KATGR)</label><select id="inKategori"><option value="ops">OPS</option><option value="nonops">NON OPS</option></select></div>
-        </div>
-        <div class="form-sec">Uraian (opsional)</div>
-        <div class="form-grid">
-          <div class="fld"><label>Nama Program</label><input id="inProgNama" placeholder="opsional" /></div>
-          <div class="fld"><label>Nama Kegiatan</label><input id="inKegNama" placeholder="opsional" /></div>
         </div>
       </div>
       <div class="modal-ftr">

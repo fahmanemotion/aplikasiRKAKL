@@ -510,6 +510,36 @@ function downloadKertasKerja() {
 /* ── Form Input Usulan (modal) ─────────────────────────────────────── */
 function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
 function setVal(id, v) { var el = document.getElementById(id); if (el) el.value = (v == null ? '' : v); }
+// Helper referensi/cascade
+function childrenOf(level, parentKode) {
+  return (APP.refData[level] || []).filter(function (r) { return (r.induk || '') === (parentKode || ''); });
+}
+function uraianOf(level, kode) {
+  var r = (APP.refData[level] || []).filter(function (x) { return x.kode === kode; })[0];
+  return r ? (r.uraian || '') : '';
+}
+function fillRefSelect(id, items, placeholder, selected, withUraian) {
+  var sel = document.getElementById(id); if (!sel) return;
+  sel.innerHTML = '<option value="">' + placeholder + '</option>' + items.map(function (o) {
+    var label = withUraian ? (o.kode + (o.uraian ? ' — ' + o.uraian : '')) : o.kode;
+    return '<option value="' + esc(o.kode) + '"' + (o.kode === selected ? ' selected' : '') + '>' + esc(label) + '</option>';
+  }).join('');
+}
+// Dipanggil saat sebuah dropdown cascade berubah
+function onCascade(level) {
+  var idMap = { program: 'inProg', kro: 'inKro', ro: 'inRo', komponen: 'inKomp', akun: 'inAkun' };
+  var val = gv(idMap[level]);
+  var idx = CASCADE.indexOf(level);
+  // isi anak langsung; kosongkan cucu ke bawah
+  if (idx < CASCADE.length - 1) {
+    var child = CASCADE[idx + 1];
+    fillRefSelect(idMap[child], val ? childrenOf(child, val) : [], '— pilih ' + refDef(child).label + ' —', '', true);
+    for (var i = idx + 2; i < CASCADE.length; i++) {
+      fillRefSelect(idMap[CASCADE[i]], [], '— pilih ' + refDef(CASCADE[i]).label + ' —', '', true);
+    }
+  }
+  if (level === 'akun') { var da = document.getElementById('inDetailAkun'); if (da) da.value = uraianOf('akun', val); }
+}
 function openInput(prefill) {
   if (!requireLogin('input usulan')) return;
   APP.editId = prefill ? String(prefill.id) : null;
@@ -517,16 +547,21 @@ function openInput(prefill) {
   if (ta) ta.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '">TA ' + y + '</option>'; }).join('');
   var th = document.getElementById('inTahap');
   if (th) th.innerHTML = STAGES.map(function (s) { return '<option value="' + s.key + '">' + s.label + '</option>'; }).join('');
-  var dl = document.getElementById('akunList');
-  if (dl) dl.innerHTML = REF_ROWS.map(function (r) { return '<option value="' + esc(r[7]) + '">' + esc(r[8]) + '</option>'; }).join('');
-  var s = prefill || { ta: APP.year, tahap: APP.stage, ba: '022', prog: '12.DL', keg: '3996', kro: 'SAB', ro: '005', komp: '051', subkomp: 'A', akun: '', detail_akun: '', detail_belanja: '', vol: 1, sat: '', hrg_sat: 0, sd: 'rm', kategori: 'ops', prog_nama: '', keg_nama: '' };
-  setVal('inTa', s.ta); setVal('inTahap', s.tahap);
-  setVal('inBa', s.ba); setVal('inProg', s.prog); setVal('inKeg', s.keg);
-  setVal('inKro', s.kro); setVal('inRo', s.ro); setVal('inKomp', s.komp); setVal('inSubkomp', s.subkomp);
-  setVal('inAkun', s.akun); setVal('inDetailAkun', s.detail_akun); setVal('inDetailBelanja', s.detail_belanja);
+  var s = prefill || { ta: APP.year, tahap: APP.stage, ba: '022', prog: '', keg: '', kro: '', ro: '', komp: '', subkomp: 'A', akun: '', detail_akun: '', detail_belanja: '', vol: 1, sat: '', hrg_sat: 0, sd: 'rm', kategori: 'ops' };
+  // BA & Kegiatan (mandiri) + Program (top cascade)
+  var baItems = (APP.refData.ba || []); if (!baItems.length) baItems = [{ kode: '022', uraian: 'Kementerian Perhubungan' }];
+  fillRefSelect('inBa', baItems, '— pilih BA —', s.ba || '022', true);
+  fillRefSelect('inKeg', APP.refData.kegiatan || [], '— pilih Kegiatan —', s.keg, true);
+  fillRefSelect('inProg', APP.refData.program || [], '— pilih Program —', s.prog, true);
+  // KRO/RO/Komponen/Akun: isi sesuai parent terpilih (untuk edit) atau kosong
+  fillRefSelect('inKro', s.prog ? childrenOf('kro', s.prog) : [], '— pilih KRO —', s.kro, true);
+  fillRefSelect('inRo', s.kro ? childrenOf('ro', s.kro) : [], '— pilih RO —', s.ro, true);
+  fillRefSelect('inKomp', s.ro ? childrenOf('komponen', s.ro) : [], '— pilih Komponen —', s.komp, true);
+  fillRefSelect('inAkun', s.komp ? childrenOf('akun', s.komp) : [], '— pilih Akun —', s.akun, true);
+  setVal('inTa', s.ta); setVal('inTahap', s.tahap); setVal('inSubkomp', s.subkomp);
+  setVal('inDetailAkun', s.detail_akun || uraianOf('akun', s.akun)); setVal('inDetailBelanja', s.detail_belanja);
   setVal('inVol', s.vol); setVal('inSat', s.sat); setVal('inHrg', s.hrg_sat);
   setVal('inSd', s.sd); setVal('inKategori', s.kategori);
-  setVal('inProgNama', s.prog_nama || ''); setVal('inKegNama', s.keg_nama || '');
   recalcJumlah();
   var ttl = document.getElementById('inModalTitle');
   if (ttl) ttl.innerHTML = '<i class="fas fa-pen-to-square" style="color:var(--blue);margin-right:8px"></i>' + (prefill ? 'Edit Usulan Belanja' : 'Input Usulan Belanja');
@@ -538,12 +573,6 @@ function closeInput() { var m = document.getElementById('inputModal'); if (m) m.
 function recalcJumlah() {
   var v = parseFloat(gv('inVol')) || 0, h = parseFloat(gv('inHrg')) || 0;
   var j = document.getElementById('inJumlah'); if (j) j.value = fmtRp(v * h);
-}
-function onAkunInput() {
-  var ak = gv('inAkun').trim();
-  var found = REF_ROWS.filter(function (r) { return r[7] === ak; })[0];
-  var da = document.getElementById('inDetailAkun');
-  if (found && da && !da.value) da.value = found[8];
 }
 function editRow(id) {
   if (!requireLogin('mengubah data')) return;
@@ -563,14 +592,17 @@ async function deleteRow(id) {
   } catch (e) { toast('error', 'Gagal Menghapus', e.message); console.error('[SIPRA] delete error:', e); }
 }
 async function submitInput() {
+  var prog = gv('inProg').trim(), keg = gv('inKeg').trim(), kro = gv('inKro').trim(), ro = gv('inRo').trim();
   var rec = {
     ta: gv('inTa') || APP.year, tahap: gv('inTahap') || APP.stage,
-    ba: gv('inBa').trim() || '022', prog: gv('inProg').trim(), keg: gv('inKeg').trim(),
-    kro: gv('inKro').trim(), ro: gv('inRo').trim(), komp: gv('inKomp').trim(), subkomp: gv('inSubkomp').trim(),
-    akun: gv('inAkun').trim(), detail_akun: gv('inDetailAkun').trim(), detail_belanja: gv('inDetailBelanja').trim(),
+    ba: gv('inBa').trim() || '022', prog: prog, keg: keg,
+    kro: kro, ro: ro, komp: gv('inKomp').trim(), subkomp: gv('inSubkomp').trim(),
+    akun: gv('inAkun').trim(), detail_akun: gv('inDetailAkun').trim() || uraianOf('akun', gv('inAkun').trim()),
+    detail_belanja: gv('inDetailBelanja').trim(),
     vol: parseFloat(gv('inVol')) || 0, sat: gv('inSat').trim(), hrg_sat: parseFloat(gv('inHrg')) || 0,
     sd: gv('inSd') || 'rm', kategori: gv('inKategori') || 'ops',
-    prog_nama: gv('inProgNama').trim(), keg_nama: gv('inKegNama').trim(), kro_nama: '', ro_nama: '',
+    prog_nama: uraianOf('program', prog), keg_nama: uraianOf('kegiatan', keg),
+    kro_nama: uraianOf('kro', kro), ro_nama: uraianOf('ro', ro),
   };
   if (!rec.akun || !rec.detail_belanja) { toast('error', 'Lengkapi Data', 'Akun dan Detail Belanja wajib diisi.'); return; }
   if (rec.vol <= 0 || rec.hrg_sat <= 0) { toast('error', 'Lengkapi Data', 'Volume dan Harga Satuan harus lebih dari 0.'); return; }
@@ -635,14 +667,16 @@ function renderUsers() {
 
 /* ── Basis Data KODE (7 tabel referensi) ───────────────────────────── */
 var REF_TABLES = [
-  { key: 'ba',       table: 'ref_ba',       label: 'BA',       full: 'BA (Bagian Anggaran)' },
-  { key: 'program',  table: 'ref_program',  label: 'Program',  full: 'Program' },
-  { key: 'kegiatan', table: 'ref_kegiatan', label: 'Kegiatan', full: 'Kegiatan' },
-  { key: 'kro',      table: 'ref_kro',      label: 'KRO',      full: 'KRO' },
-  { key: 'ro',       table: 'ref_ro',       label: 'RO',       full: 'RO' },
-  { key: 'komponen', table: 'ref_komponen', label: 'Komponen', full: 'Komponen' },
-  { key: 'akun',     table: 'ref_akun',     label: 'Akun',     full: 'Akun' },
+  { key: 'ba',       table: 'ref_ba',       label: 'BA',       full: 'BA (Bagian Anggaran)', parent: null },
+  { key: 'program',  table: 'ref_program',  label: 'Program',  full: 'Program',  parent: null },
+  { key: 'kegiatan', table: 'ref_kegiatan', label: 'Kegiatan', full: 'Kegiatan', parent: null },
+  { key: 'kro',      table: 'ref_kro',      label: 'KRO',      full: 'KRO',      parent: 'program' },
+  { key: 'ro',       table: 'ref_ro',       label: 'RO',       full: 'RO',       parent: 'kro' },
+  { key: 'komponen', table: 'ref_komponen', label: 'Komponen', full: 'Komponen', parent: 'ro' },
+  { key: 'akun',     table: 'ref_akun',     label: 'Akun',     full: 'Akun',     parent: 'komponen' },
 ];
+// Rantai cascade untuk modal Input usulan
+var CASCADE = ['program', 'kro', 'ro', 'komponen', 'akun'];
 function refDef(key) { return REF_TABLES.filter(function (t) { return t.key === key; })[0] || REF_TABLES[0]; }
 async function loadRefTables() {
   for (var i = 0; i < REF_TABLES.length; i++) {
@@ -667,8 +701,12 @@ function renderKodeSection() {
   var def = refDef(APP.kodeTab);
   var ttl = document.getElementById('kodeTitle'); if (ttl) ttl.textContent = 'Tabel ' + def.full;
   var head = document.getElementById('kodeHead');
-  if (head) head.innerHTML = '<th style="width:160px">Kode ' + esc(def.label) + '</th><th>Uraian ' + esc(def.label) + '</th><th style="width:90px;text-align:center">Aksi</th>';
+  var hasParent = !!def.parent;
+  if (head) head.innerHTML = '<th style="width:150px">Kode ' + esc(def.label) + '</th><th>Uraian ' + esc(def.label) + '</th>' +
+    (hasParent ? '<th style="width:160px">Induk (' + esc(refDef(def.parent).label) + ')</th>' : '') +
+    '<th style="width:90px;text-align:center">Aksi</th>';
   var rows = APP.refData[APP.kodeTab] || [];
+  var colspan = hasParent ? 4 : 3;
   var body = document.getElementById('kodeBody');
   if (body) body.innerHTML = rows.length ? rows.map(function (r) {
     var aksi = isLoggedIn()
@@ -677,8 +715,9 @@ function renderKodeSection() {
         '<button class="ra-del" title="Hapus" onclick="deleteKode(\'' + r.id + '\')"><i class="fas fa-trash"></i></button></div>'
       : '<span style="color:var(--t3)">—</span>';
     return '<tr><td class="mono">' + esc(r.kode) + '</td><td>' + esc(r.uraian || '') + '</td>' +
+      (hasParent ? '<td class="mono">' + (r.induk ? esc(r.induk) : '<span style="color:var(--t3)">—</span>') + '</td>' : '') +
       '<td style="text-align:center">' + aksi + '</td></tr>';
-  }).join('') : '<tr><td colspan="3" style="text-align:center;padding:28px;color:var(--t3)">Belum ada data — klik "Tambah Kode"</td></tr>';
+  }).join('') : '<tr><td colspan="' + colspan + '" style="text-align:center;padding:28px;color:var(--t3)">Belum ada data — klik "Tambah Kode"</td></tr>';
 }
 function onKodeTab(key) { APP.kodeTab = key; renderKodeSection(); }
 
@@ -688,6 +727,17 @@ function openKode(prefill) {
   var def = refDef(APP.kodeTab);
   setVal('kdKode', prefill ? prefill.kode : '');
   setVal('kdUraian', prefill ? (prefill.uraian || '') : '');
+  // Induk (parent) — hanya untuk tabel turunan
+  var wrap = document.getElementById('kdIndukWrap');
+  var sel = document.getElementById('kdInduk');
+  if (def.parent && wrap && sel) {
+    wrap.style.display = '';
+    var pdef = refDef(def.parent);
+    document.getElementById('kdIndukLabel').textContent = 'Induk — ' + pdef.full;
+    var opts = (APP.refData[def.parent] || []);
+    sel.innerHTML = '<option value="">— pilih ' + esc(pdef.label) + ' —</option>' +
+      opts.map(function (o) { return '<option value="' + esc(o.kode) + '"' + (prefill && prefill.induk === o.kode ? ' selected' : '') + '>' + esc(o.kode) + (o.uraian ? ' — ' + esc(o.uraian) : '') + '</option>'; }).join('');
+  } else if (wrap) { wrap.style.display = 'none'; }
   var ttl = document.getElementById('kodeModalTitle');
   if (ttl) ttl.innerHTML = '<i class="fas fa-database" style="color:var(--blue);margin-right:8px"></i>' + (prefill ? 'Edit' : 'Tambah') + ' Kode — ' + esc(def.full);
   var sb = document.getElementById('kdSaveBtn');
@@ -698,14 +748,16 @@ function closeKode() { var m = document.getElementById('kodeModal'); if (m) m.cl
 async function submitKode() {
   var def = refDef(APP.kodeTab);
   var kode = (gv('kdKode') || '').trim(), uraian = (gv('kdUraian') || '').trim();
+  var induk = def.parent ? (gv('kdInduk') || '').trim() : '';
   if (!kode) { toast('error', 'Lengkapi Data', 'Kode wajib diisi.'); return; }
+  if (def.parent && !induk) { toast('error', 'Lengkapi Data', 'Induk (' + refDef(def.parent).label + ') wajib dipilih.'); return; }
   var editId = APP.kodeEditId;
   var btn = document.getElementById('kdSaveBtn'); if (btn) btn.disabled = true;
   try {
     if (editId) {
-      await supaWrite('PATCH', def.table, { query: 'id=eq.' + encodeURIComponent(editId), body: { kode: kode, uraian: uraian } });
+      await supaWrite('PATCH', def.table, { query: 'id=eq.' + encodeURIComponent(editId), body: { kode: kode, uraian: uraian, induk: induk } });
     } else {
-      await supaWrite('POST', def.table, { query: 'on_conflict=kode', body: [{ kode: kode, uraian: uraian }], upsert: true });
+      await supaWrite('POST', def.table, { query: 'on_conflict=induk,kode', body: [{ kode: kode, uraian: uraian, induk: induk }], upsert: true });
     }
     toast('success', editId ? 'Diperbarui' : 'Tersimpan', def.label + ' ' + kode + ' ' + (editId ? 'diperbarui' : 'disimpan') + '.');
     closeKode();
@@ -788,8 +840,8 @@ function init() {
   updateAuthUI(); renderUsers(); renderRefTable();
   renderAll();
   loadFromSupabase();
-  // Perbarui token sesi (atau bersihkan bila refresh token sudah kedaluwarsa)
-  if (isLoggedIn()) refreshSession().then(function () { updateAuthUI(); renderUsers(); renderAll(); });
+  loadRefTables();          // referensi kode untuk dropdown bertingkat modal Input
+  if (isLoggedIn()) refreshSession().then(function () { updateAuthUI(); renderUsers(); renderKodeSection(); renderAll(); });
 }
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', init);
 
@@ -802,6 +854,7 @@ if (typeof module !== 'undefined' && module.exports) {
     csvCell: csvCell, mapRow: mapRow, toDbRow: toDbRow, amountOf: amountOf,
     authToken: authToken, isLoggedIn: isLoggedIn,
     REF_TABLES: REF_TABLES, refDef: refDef,
+    CASCADE: CASCADE, childrenOf: childrenOf, uraianOf: uraianOf,
     fmtRp: fmtRp, fmtM: fmtM, yearOptions: yearOptions, STAGES: STAGES, UPSERT_KEY: UPSERT_KEY, TABLE: TABLE,
   };
 }
