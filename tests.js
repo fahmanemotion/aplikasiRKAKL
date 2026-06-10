@@ -97,6 +97,13 @@ eq(A.kodeToJenis('511111'), 'pegawai', 'akun 51xxxx → Pegawai');
 eq(A.kodeToJenis('521211'), 'barang', 'akun 52xxxx → Barang');
 eq(A.kodeToJenis('525112'), 'barang', 'akun 525xxx (BLU) → Barang');
 eq(A.kodeToJenis('533111'), 'modal', 'akun 53xxxx → Modal');
+console.log('\n\u25B6 kertas kerja: pemetaan kolom matriks');
+eq(A.kkColOf({ akun: '511111', kategori: 'ops', sd: 'rm' }), 'W', 'Pegawai → W (Oper Pegawai RM)');
+eq(A.kkColOf({ akun: '521111', kategori: 'ops', sd: 'rm' }), 'X', 'Barang ops RM → X');
+eq(A.kkColOf({ akun: '525112', kategori: 'ops', sd: 'blu' }), 'Y', 'Barang ops BLU → Y');
+eq(A.kkColOf({ akun: '521111', kategori: 'nonops', sd: 'rm' }), 'Z', 'Barang non-op RM → Z');
+eq(A.kkColOf({ akun: '525112', kategori: 'nonops', sd: 'blu' }), 'AA', 'Barang non-op BLU → AA');
+eq(A.kkColOf({ akun: '532111', kategori: 'nonops', sd: 'rm' }), 'AB', 'Modal → AB');
 
 console.log('\n' + '='.repeat(50));
 console.log('HASIL: ' + pass + ' lulus, ' + fail + ' gagal');

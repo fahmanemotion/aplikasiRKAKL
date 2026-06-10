@@ -491,20 +491,115 @@ function goDb(p) { APP.dbPage = p; renderDatabase(); }
 
 /* ── Download Kertas Kerja (CSV, semua tahap tahun aktif) ── */
 function csvCell(v) { v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+/* Kolom matriks untuk satu record: Operasional/Non-Op × jenis × sumber dana */
+function kkColOf(r) {
+  var j = kodeToJenis(r.akun);
+  if (j === 'modal') return 'AB';
+  if (j === 'pegawai') return 'W';
+  if (r.kategori === 'ops') return r.sd === 'blu' ? 'Y' : 'X';
+  return r.sd === 'blu' ? 'AA' : 'Z';
+}
+/* Uraian dari refData berdasarkan kode + jalur induk (akurat utk kode berulang) */
+function refUraian(level, kode, parentPath) {
+  var arr = APP.refData[level] || [], i;
+  for (i = 0; i < arr.length; i++) if (arr[i].kode === kode && (parentPath == null || (arr[i].induk || '') === parentPath)) return arr[i].uraian || '';
+  for (i = 0; i < arr.length; i++) if (arr[i].kode === kode) return arr[i].uraian || '';
+  return '';
+}
 function downloadKertasKerja() {
-  var rows = recordsForYear(APP.year);
-  if (!rows.length) { toast('error', 'Tidak Ada Data', 'Belum ada usulan untuk diunduh.'); return; }
-  var head = ['Tahap', 'BA', 'Program', 'Kegiatan', 'KRO', 'RO', 'Komponen', 'Sub Komponen', 'Akun', 'Detail Akun', 'Detail Belanja', 'Vol', 'Satuan', 'Harga Satuan', 'Jumlah', 'SD', 'Kategori'];
-  var lines = [head.join(';')];
+  var rows = recordsView(APP.year, APP.stage);
+  if (!rows.length) { toast('error', 'Tidak Ada Data', 'Belum ada usulan pada TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + '.'); return; }
+
+  function node(kode, uraian, level) { return { kode: kode, uraian: uraian, level: level, total: 0, b: { W: 0, X: 0, Y: 0, Z: 0, AA: 0, AB: 0 }, sd: { rm: 0, blu: 0, sbsn: 0 }, order: [], map: {}, details: [], sdLabel: '' }; }
+  function child(p, kode, uraian, level) { if (!p.map[kode]) { p.map[kode] = node(kode, uraian, level); p.order.push(kode); } return p.map[kode]; }
+  function add(n, col, amt, sd) { n.total += amt; n.b[col] += amt; n.sd[sd] = (n.sd[sd] || 0) + amt; }
+
+  var unit = (rows[0].prog || '').split('.')[0] || '12';
+  var root = node('022.' + unit, 'POLITEKNIK ILMU PELAYARAN MAKASSAR', 'unit');
   rows.forEach(function (r) {
-    lines.push([STAGE_LABEL[r.tahap], r.ba, r.prog, r.keg, r.kro, r.ro, r.komp, r.subkomp, r.akun, r.detail_akun, r.detail_belanja,
-      r.vol, r.sat, r.hrg_sat, amountOf(r), r.sd.toUpperCase(), (r.kategori === 'ops' ? 'OPS' : 'NON OPS')].map(csvCell).join(';'));
+    var col = kkColOf(r), amt = amountOf(r), sd = r.sd;
+    var pPath = r.prog, kPath = r.prog + '.' + r.keg, krPath = kPath + '.' + r.kro, roPath = krPath + '.' + r.ro;
+    add(root, col, amt, sd);
+    var nP = child(root, '022.' + r.prog, refUraian('program', r.prog, '') || r.prog_nama || '', 'program'); add(nP, col, amt, sd);
+    var nK = child(nP, r.keg, refUraian('kegiatan', r.keg, pPath) || r.keg_nama || '', 'kegiatan'); add(nK, col, amt, sd);
+    var nR = child(nK, r.keg + '.' + r.kro, refUraian('kro', r.kro, kPath) || r.kro_nama || '', 'kro'); add(nR, col, amt, sd);
+    var nO = child(nR, r.keg + '.' + r.kro + '.' + r.ro, refUraian('ro', r.ro, krPath) || r.ro_nama || '', 'ro'); add(nO, col, amt, sd);
+    var nC = child(nO, r.komp, refUraian('komponen', r.komp, roPath), 'komponen'); add(nC, col, amt, sd);
+    var nS = child(nC, r.subkomp || '-', '', 'subkomp'); add(nS, col, amt, sd);
+    var nA = child(nS, r.akun, refUraian('akun', r.akun, r.sd) || 'Belanja', 'akun'); nA.sdLabel = r.sd; add(nA, col, amt, sd);
+    nA.details.push(r);
   });
-  var blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+
+  var NCOL = 31;
+  function n(v) { return (v || v === 0) ? '<td class="num">' + Math.round(v) + '</td>' : '<td></td>'; }
+  function e() { return '<td></td>'; }
+  function structRow(nd) {
+    var pad = ({ unit: 0, program: 1, kegiatan: 2, kro: 3, ro: 4, komponen: 5, subkomp: 6, akun: 7 })[nd.level] * 11;
+    var cls = (nd.level === 'unit' || nd.level === 'program' || nd.level === 'kegiatan') ? 'lv-top' : 'lv-st';
+    var html = '<tr class="' + cls + '">';
+    html += '<td class="k">' + esc(nd.kode) + '</td>';
+    html += '<td style="padding-left:' + (4 + pad) + 'px">' + esc(nd.uraian) + '</td>';
+    for (var i = 0; i < 14; i++) html += e();           // Rincian volume (kosong di baris struktur)
+    html += e() + e() + e();                            // Vol, Satuan, Harga
+    html += n(nd.total);                                // Jumlah
+    html += n(nd.b.W) + n(nd.b.X) + n(nd.b.Y);          // Operasional: Pegawai-RM, Barang-RM, Barang-BLU
+    html += n(nd.b.Z) + n(nd.b.AA) + n(nd.b.AB);        // Non-Op: Barang-RM, Barang-BLU, Modal
+    html += n(nd.sd.rm) + n(nd.sd.blu) + n(nd.sd.sbsn); // Sumber Dana RM/BLU/SBSN
+    html += n(nd.total);                                // Jumlah Raya
+    html += '<td class="ctr">' + (nd.level === 'akun' && nd.sdLabel ? esc(nd.sdLabel.toUpperCase()) : '') + '</td>';
+    return html + '</tr>';
+  }
+  function detailRow(d) {
+    var html = '<tr>';
+    html += e();                                        // KODE kosong
+    html += '<td style="padding-left:90px">- ' + esc(d.detail_belanja || d.detail_akun || '') + '</td>';
+    html += n(d.vol) + '<td>' + esc(d.sat || '') + '</td>' + e(); // grup1: vol1, sat1, x
+    for (var i = 0; i < 11; i++) html += e();           // grup 2-5 kosong
+    html += n(d.vol) + '<td>' + esc(d.sat || '') + '</td>' + n(d.hrg_sat); // Vol, Satuan, Harga
+    html += n(amountOf(d));                             // Jumlah
+    for (var k = 0; k < 11; k++) html += e();           // matriks + SD + JumlahRaya + SD-label kosong
+    return html + '</tr>';
+  }
+  var body = [];
+  (function emit(nd) {
+    body.push(structRow(nd));
+    if (nd.level === 'akun') nd.details.forEach(function (d) { body.push(detailRow(d)); });
+    else nd.order.forEach(function (k) { emit(nd.map[k]); });
+  })(root);
+
+  var H = '<tr>'
+    + '<th class="hd" rowspan="2">KODE</th><th class="hd" rowspan="2">URAIAN</th>'
+    + '<th class="hd" colspan="14">Rincian Perhitungan Volume</th>'
+    + '<th class="hd" rowspan="2">Vol</th><th class="hd" rowspan="2">Satuan</th><th class="hd" rowspan="2">Harga</th><th class="hd" rowspan="2">Jumlah</th>'
+    + '<th class="hd" colspan="3">Belanja Operasional</th><th class="hd" colspan="3">Belanja Non Operasional</th>'
+    + '<th class="hd" colspan="3">Sumber Dana</th><th class="hd" rowspan="2">Jumlah Raya</th><th class="hd" rowspan="2">SD</th></tr>';
+  H += '<tr>';
+  for (var g = 1; g <= 5; g++) { H += '<th class="hd2">Vol' + g + '</th><th class="hd2">Sat' + g + '</th>' + (g < 5 ? '<th class="hd2">×</th>' : ''); }
+  H += '<th class="hd2">Pegawai<br>RM</th><th class="hd2">Barang<br>RM</th><th class="hd2">Barang<br>BLU</th>';
+  H += '<th class="hd2">Barang<br>RM</th><th class="hd2">Barang<br>BLU</th><th class="hd2">Modal<br>SBSN</th>';
+  H += '<th class="hd2">RM</th><th class="hd2">BLU</th><th class="hd2">SBSN</th></tr>';
+
+  var style = 'table{border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11px}'
+    + 'td,th{border:0.5pt solid #9aa7b6;padding:2px 6px;vertical-align:middle}'
+    + '.hd{background:#1F3A5F;color:#fff;font-weight:bold;text-align:center}'
+    + '.hd2{background:#33507A;color:#fff;font-weight:bold;text-align:center}'
+    + '.k{font-family:Consolas,monospace}.ctr{text-align:center}'
+    + '.num{text-align:right;mso-number-format:"\\#\\,\\#\\#0"}'
+    + '.tt{font-weight:bold;border:none;text-align:left}'
+    + '.lv-top{background:#dbe5f3;font-weight:bold}.lv-st{background:#eef3fb;font-weight:bold}';
+  var title = '<tr><td class="tt" colspan="' + NCOL + '" style="font-size:14px">KOMPOSISI ANGGARAN</td></tr>'
+    + '<tr><td class="tt" colspan="' + NCOL + '">POLITEKNIK ILMU PELAYARAN MAKASSAR</td></tr>'
+    + '<tr><td class="tt" colspan="' + NCOL + '">Kertas Kerja T.A ' + APP.year + ' — Tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + '</td></tr>'
+    + '<tr><td colspan="' + NCOL + '" style="border:none">&nbsp;</td></tr>';
+  var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">'
+    + '<head><meta charset="utf-8"><style>' + style + '</style></head><body><table>'
+    + title + H + body.join('') + '</table></body></html>';
+
+  var blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
   var url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href = url; a.download = 'Kertas_Kerja_RKA-KL_PIP_Makassar_TA' + APP.year + '.csv';
+  a.href = url; a.download = 'Kertas_Kerja_PIP_Makassar_TA' + APP.year + '_' + (STAGE_LABEL[APP.stage] || APP.stage) + '.xls';
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  toast('success', 'Kertas Kerja Diunduh', 'TA ' + APP.year + ' — ' + rows.length + ' baris (CSV, dapat dibuka di Excel).');
+  toast('success', 'Kertas Kerja Diunduh', 'Format Komposisi Anggaran · TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + ' · ' + rows.length + ' detail.');
 }
 
 /* ── Form Input Usulan (modal) ─────────────────────────────────────── */
@@ -933,6 +1028,7 @@ if (typeof module !== 'undefined' && module.exports) {
     authToken: authToken, isLoggedIn: isLoggedIn,
     REF_TABLES: REF_TABLES, refDef: refDef,
     CASCADE: CASCADE, childrenOf: childrenOf, uraianOf: uraianOf, pathOf: pathOf,
+    kkColOf: kkColOf, refUraian: refUraian, downloadKertasKerja: downloadKertasKerja,
     fmtRp: fmtRp, fmtM: fmtM, yearOptions: yearOptions, STAGES: STAGES, UPSERT_KEY: UPSERT_KEY, TABLE: TABLE,
   };
 }
