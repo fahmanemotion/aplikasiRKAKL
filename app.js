@@ -543,12 +543,55 @@ function onCascade(level) {
   }
 }
 // Akun bersifat mandiri: hanya isi Detail Akun otomatis
+/* Combobox Akun — ketik untuk menyaring (daftar akun panjang) */
+function akunOpts() { return childrenOf('akun', gv('inSd')); }
+var akunHi = -1;
+function akunRender(list) {
+  var p = document.getElementById('akunPanel'); if (!p) return;
+  if (!list.length) { p.innerHTML = '<div class="combo-empty">Tidak ada akun untuk sumber dana ini</div>'; }
+  else {
+    p.innerHTML = list.map(function (o, i) {
+      return '<div class="combo-item' + (i === akunHi ? ' hi' : '') + '" data-kode="' + esc(o.kode) + '" onmousedown="akunPick(\'' + esc(o.kode) + '\')">' +
+        '<span class="ci-kode">' + esc(o.kode) + '</span>' + esc(o.uraian || '') + '</div>';
+    }).join('');
+  }
+  p.classList.add('open');
+}
+function akunFilter() {
+  var q = (gv('inAkunSearch') || '').toLowerCase().trim();
+  var list = akunOpts().filter(function (o) {
+    return !q || o.kode.toLowerCase().indexOf(q) >= 0 || (o.uraian || '').toLowerCase().indexOf(q) >= 0;
+  });
+  akunHi = -1; akunRender(list);
+}
+function akunPick(kode) {
+  setVal('inAkun', kode);
+  var o = akunOpts().filter(function (x) { return x.kode === kode; })[0];
+  setVal('inAkunSearch', o ? (o.kode + (o.uraian ? ' — ' + o.uraian : '')) : kode);
+  akunClose(); refreshJenis();
+}
+function akunClose() { var p = document.getElementById('akunPanel'); if (p) p.classList.remove('open'); }
+function akunKey(e) {
+  var p = document.getElementById('akunPanel'); if (!p) return;
+  var items = p.querySelectorAll('.combo-item');
+  if (e.key === 'ArrowDown') { akunHi = Math.min(akunHi + 1, items.length - 1); e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { akunHi = Math.max(akunHi - 1, 0); e.preventDefault(); }
+  else if (e.key === 'Enter') { if (akunHi >= 0 && items[akunHi]) { akunPick(items[akunHi].getAttribute('data-kode')); e.preventDefault(); } return; }
+  else if (e.key === 'Escape') { akunClose(); return; }
+  else return;
+  for (var i = 0; i < items.length; i++) items[i].classList.toggle('hi', i === akunHi);
+  if (items[akunHi]) items[akunHi].scrollIntoView({ block: 'nearest' });
+}
+function setAkunValue(kode) {
+  setVal('inAkun', kode || '');
+  setVal('inAkunSearch', kode ? (kode + ' — ' + uraianOf('akun', kode)) : '');
+}
 function refreshJenis() {
   var j = document.getElementById('inJenis'); if (!j) return;
   var ak = gv('inAkun');
   j.value = ak ? JENIS_LABEL[kodeToJenis(ak)] : '';
 }
-function onAkunPick() { refreshJenis(); }
+function onAkunPick() { refreshJenis(); }  /* dipertahankan untuk kompatibilitas */
 function openInput(prefill) {
   if (!requireLogin('input usulan')) return;
   APP.editId = prefill ? String(prefill.id) : null;
@@ -569,7 +612,7 @@ function openInput(prefill) {
   fillRefSelect('inKomp', s.ro ? childrenOf('komponen', p4) : [], '— pilih Komponen —', s.komp, true);
   // Sumber Dana → memfilter Akun
   setVal('inSd', s.sd || 'rm'); setVal('inKategori', s.kategori);
-  fillRefSelect('inAkun', childrenOf('akun', s.sd || 'rm'), '— pilih Akun —', s.akun, true);
+  setAkunValue(s.akun); akunClose();
   setVal('inSubkomp', s.subkomp);
   setVal('inDetailBelanja', s.detail_belanja); refreshJenis();
   setVal('inVol', s.vol); setVal('inSat', s.sat); setVal('inHrg', s.hrg_sat);
@@ -582,8 +625,7 @@ function openInput(prefill) {
 }
 // Sumber Dana berubah → Akun mengikuti (filter), kosongkan pilihan akun & detail
 function onSdChange() {
-  fillRefSelect('inAkun', childrenOf('akun', gv('inSd')), '— pilih Akun —', '', true);
-  refreshJenis();
+  setAkunValue(''); akunClose(); refreshJenis();
 }
 function closeInput() { var m = document.getElementById('inputModal'); if (m) m.classList.remove('open'); APP.editId = null; }
 function recalcJumlah() {
@@ -873,6 +915,10 @@ function init() {
   renderAll();
   loadFromSupabase();
   loadRefTables();          // referensi kode untuk dropdown bertingkat modal Input
+  document.addEventListener('click', function (e) {
+    var c = document.getElementById('akunCombo');
+    if (c && !c.contains(e.target)) akunClose();
+  });
   if (isLoggedIn()) refreshSession().then(function () { updateAuthUI(); renderUsers(); renderKodeSection(); renderAll(); });
 }
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', init);

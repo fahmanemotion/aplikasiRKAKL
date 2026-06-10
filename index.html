@@ -359,7 +359,13 @@
           <div class="fld"><label>Sub Komponen</label><input id="inSubkomp" value="A" /></div>
           <div class="fld"><label>Kategori (KATGR)</label><select id="inKategori"><option value="ops">OPS</option><option value="nonops">NON OPS</option></select></div>
           <div class="fld"><label>Sumber Dana (SD)</label><select id="inSd" onchange="onSdChange()"><option value="rm">RM — Rupiah Murni</option><option value="blu">BLU</option></select></div>
-          <div class="fld"><label>Akun <span style="color:var(--t3);font-weight:400">(ikut Sumber Dana)</span></label><select id="inAkun" onchange="onAkunPick()"></select></div>
+          <div class="fld"><label>Akun <span style="color:var(--t3);font-weight:400">(ketik untuk cari)</span></label>
+            <div class="combo" id="akunCombo">
+              <input type="text" id="inAkunSearch" autocomplete="off" placeholder="ketik kode / nama akun…" oninput="akunFilter()" onfocus="akunFilter()" onkeydown="akunKey(event)" />
+              <input type="hidden" id="inAkun" />
+              <div class="combo-panel" id="akunPanel"></div>
+            </div>
+          </div>
         </div>
         <div class="form-sec">Belanja</div>
         <div class="form-grid">
