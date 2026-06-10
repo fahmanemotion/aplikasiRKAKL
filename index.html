@@ -266,11 +266,54 @@
             </div>
             <p id="userNote" style="margin-top:14px;font-size:12.5px;color:var(--t2);line-height:1.7"></p>
           </div>
+
+          <!-- Basis Data KODE (7 tabel referensi) -->
+          <div class="section" style="margin-top:18px">
+            <div class="sec-hdr">
+              <div class="sec-title-row">
+                <div class="sec-title">Basis Data Kode (KODE)</div>
+              </div>
+              <p style="color:var(--t3);font-size:12px;line-height:1.6;margin-top:6px">
+                Input manual referensi kode anggaran. Pilih tabel, lalu tambah/ubah/hapus pasangan Kode &amp; Uraian. (Perlu login untuk menulis.)
+              </p>
+              <div class="code-tabs" id="kodeTabs" style="margin-top:10px"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+              <div class="sec-title" id="kodeTitle" style="font-size:14px">Tabel BA (Bagian Anggaran)</div>
+              <button class="btn-primary" onclick="openKode()"><i class="fas fa-plus"></i> Tambah Kode</button>
+            </div>
+            <div class="tbl-wrap">
+              <table class="dtbl" id="kodeTbl">
+                <thead><tr id="kodeHead"></tr></thead>
+                <tbody id="kodeBody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
       </div><!-- /content -->
     </div><!-- /main -->
   </div><!-- /appWrap -->
+
+  <!-- Modal Input KODE -->
+  <div class="modal-bg" id="kodeModal">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-hdr">
+        <h3 id="kodeModalTitle"><i class="fas fa-database" style="color:var(--blue);margin-right:8px"></i>Tambah Kode</h3>
+        <button class="modal-close" onclick="closeKode()"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <div class="fld"><label>Kode</label><input id="kdKode" placeholder="mis. 022 / 12.DL / 3996 / SAB" /></div>
+          <div class="fld"><label>Uraian</label><input id="kdUraian" placeholder="uraian/nama" /></div>
+        </div>
+      </div>
+      <div class="modal-ftr">
+        <button class="btn-sec" onclick="closeKode()">Batal</button>
+        <button class="btn-primary" id="kdSaveBtn" onclick="submitKode()"><i class="fas fa-floppy-disk"></i> Simpan</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal Login -->
   <div class="modal-bg" id="loginModal">

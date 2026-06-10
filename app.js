@@ -34,6 +34,9 @@ var APP = {
   satker: 'PIP MAKASSAR',
   session: null,
   editId: null,
+  refData: { ba: [], program: [], kegiatan: [], kro: [], ro: [], komponen: [], akun: [] },
+  kodeTab: 'ba',
+  kodeEditId: null,
   records: [],
 };
 
@@ -99,7 +102,7 @@ async function refreshSession() {
 }
 function logout() {
   try { fetch(AUTH_URL + '/logout', { method: 'POST', headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + authToken() } }); } catch (e) { }
-  APP.session = null; saveSession(); updateAuthUI(); renderUsers(); renderAll();
+  APP.session = null; saveSession(); updateAuthUI(); renderUsers(); renderKodeSection(); renderAll();
   toast('info', 'Keluar', 'Anda telah keluar. Aplikasi dalam mode hanya-baca.');
 }
 // Tulis dengan retry sekali bila token kedaluwarsa
@@ -138,7 +141,7 @@ async function submitLogin() {
     await login(email, pw);
     closeLogin();
     var p = document.getElementById('lgPass'); if (p) p.value = '';
-    updateAuthUI(); renderUsers(); renderAll();
+    updateAuthUI(); renderUsers(); renderKodeSection(); renderAll();
     toast('success', 'Berhasil Masuk', 'Selamat datang, ' + ((APP.session.user && APP.session.user.email) || email) + '.');
   } catch (e) {
     toast('error', 'Login Gagal', e.message);
@@ -630,6 +633,110 @@ function renderUsers() {
     : '<i class="fas fa-lock" style="color:var(--t3)"></i> Akun login dikelola di Supabase → Authentication → Users. Untuk pemakaian internal, matikan pendaftaran mandiri (sign-up).';
 }
 
+/* ── Basis Data KODE (7 tabel referensi) ───────────────────────────── */
+var REF_TABLES = [
+  { key: 'ba',       table: 'ref_ba',       label: 'BA',       full: 'BA (Bagian Anggaran)' },
+  { key: 'program',  table: 'ref_program',  label: 'Program',  full: 'Program' },
+  { key: 'kegiatan', table: 'ref_kegiatan', label: 'Kegiatan', full: 'Kegiatan' },
+  { key: 'kro',      table: 'ref_kro',      label: 'KRO',      full: 'KRO' },
+  { key: 'ro',       table: 'ref_ro',       label: 'RO',       full: 'RO' },
+  { key: 'komponen', table: 'ref_komponen', label: 'Komponen', full: 'Komponen' },
+  { key: 'akun',     table: 'ref_akun',     label: 'Akun',     full: 'Akun' },
+];
+function refDef(key) { return REF_TABLES.filter(function (t) { return t.key === key; })[0] || REF_TABLES[0]; }
+async function loadRefTables() {
+  for (var i = 0; i < REF_TABLES.length; i++) {
+    var t = REF_TABLES[i];
+    try {
+      var rows = await supaFetchAll(t.table, 'select=*&order=kode');
+      APP.refData[t.key] = rows || [];
+    } catch (e) { APP.refData[t.key] = []; console.error('[SIPRA] load ' + t.table, e); }
+  }
+  renderKodeSection();
+}
+function renderKodeTabs() {
+  var el = document.getElementById('kodeTabs'); if (!el) return;
+  el.innerHTML = REF_TABLES.map(function (t) {
+    var n = (APP.refData[t.key] || []).length;
+    return '<div class="code-tab ' + (t.key === APP.kodeTab ? 'active' : '') + '" onclick="onKodeTab(\'' + t.key + '\')">' +
+      esc(t.label) + ' <span style="opacity:.6">(' + n + ')</span></div>';
+  }).join('');
+}
+function renderKodeSection() {
+  renderKodeTabs();
+  var def = refDef(APP.kodeTab);
+  var ttl = document.getElementById('kodeTitle'); if (ttl) ttl.textContent = 'Tabel ' + def.full;
+  var head = document.getElementById('kodeHead');
+  if (head) head.innerHTML = '<th style="width:160px">Kode ' + esc(def.label) + '</th><th>Uraian ' + esc(def.label) + '</th><th style="width:90px;text-align:center">Aksi</th>';
+  var rows = APP.refData[APP.kodeTab] || [];
+  var body = document.getElementById('kodeBody');
+  if (body) body.innerHTML = rows.length ? rows.map(function (r) {
+    var aksi = isLoggedIn()
+      ? '<div class="row-act">' +
+        '<button class="ra-edit" title="Edit" onclick="editKode(\'' + r.id + '\')"><i class="fas fa-pen"></i></button>' +
+        '<button class="ra-del" title="Hapus" onclick="deleteKode(\'' + r.id + '\')"><i class="fas fa-trash"></i></button></div>'
+      : '<span style="color:var(--t3)">—</span>';
+    return '<tr><td class="mono">' + esc(r.kode) + '</td><td>' + esc(r.uraian || '') + '</td>' +
+      '<td style="text-align:center">' + aksi + '</td></tr>';
+  }).join('') : '<tr><td colspan="3" style="text-align:center;padding:28px;color:var(--t3)">Belum ada data — klik "Tambah Kode"</td></tr>';
+}
+function onKodeTab(key) { APP.kodeTab = key; renderKodeSection(); }
+
+function openKode(prefill) {
+  if (!requireLogin('mengisi data kode')) return;
+  APP.kodeEditId = prefill ? String(prefill.id) : null;
+  var def = refDef(APP.kodeTab);
+  setVal('kdKode', prefill ? prefill.kode : '');
+  setVal('kdUraian', prefill ? (prefill.uraian || '') : '');
+  var ttl = document.getElementById('kodeModalTitle');
+  if (ttl) ttl.innerHTML = '<i class="fas fa-database" style="color:var(--blue);margin-right:8px"></i>' + (prefill ? 'Edit' : 'Tambah') + ' Kode — ' + esc(def.full);
+  var sb = document.getElementById('kdSaveBtn');
+  if (sb) sb.innerHTML = '<i class="fas fa-floppy-disk"></i> ' + (prefill ? 'Perbarui' : 'Simpan');
+  var m = document.getElementById('kodeModal'); if (m) { m.classList.add('open'); var k = document.getElementById('kdKode'); if (k) setTimeout(function () { k.focus(); }, 60); }
+}
+function closeKode() { var m = document.getElementById('kodeModal'); if (m) m.classList.remove('open'); APP.kodeEditId = null; }
+async function submitKode() {
+  var def = refDef(APP.kodeTab);
+  var kode = (gv('kdKode') || '').trim(), uraian = (gv('kdUraian') || '').trim();
+  if (!kode) { toast('error', 'Lengkapi Data', 'Kode wajib diisi.'); return; }
+  var editId = APP.kodeEditId;
+  var btn = document.getElementById('kdSaveBtn'); if (btn) btn.disabled = true;
+  try {
+    if (editId) {
+      await supaWrite('PATCH', def.table, { query: 'id=eq.' + encodeURIComponent(editId), body: { kode: kode, uraian: uraian } });
+    } else {
+      await supaWrite('POST', def.table, { query: 'on_conflict=kode', body: [{ kode: kode, uraian: uraian }], upsert: true });
+    }
+    toast('success', editId ? 'Diperbarui' : 'Tersimpan', def.label + ' ' + kode + ' ' + (editId ? 'diperbarui' : 'disimpan') + '.');
+    closeKode();
+    var rows = await supaFetchAll(def.table, 'select=*&order=kode');
+    APP.refData[def.key] = rows || [];
+    renderKodeSection();
+  } catch (e) {
+    toast('error', 'Gagal Menyimpan', e.message); console.error('[SIPRA] kode save', e);
+  } finally { if (btn) btn.disabled = false; }
+}
+function editKode(id) {
+  if (!requireLogin('mengubah data kode')) return;
+  var rec = (APP.refData[APP.kodeTab] || []).filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!rec) { toast('error', 'Tidak Ditemukan', 'Baris tidak ditemukan.'); return; }
+  openKode(rec);
+}
+async function deleteKode(id) {
+  if (!requireLogin('menghapus data kode')) return;
+  var def = refDef(APP.kodeTab);
+  var rec = (APP.refData[APP.kodeTab] || []).filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!rec) return;
+  if (!confirm('Hapus kode "' + rec.kode + '" (' + (rec.uraian || '') + ')?')) return;
+  try {
+    await supaWrite('DELETE', def.table, { query: 'id=eq.' + encodeURIComponent(id) });
+    toast('success', 'Terhapus', def.label + ' ' + rec.kode + ' dihapus.');
+    var rows = await supaFetchAll(def.table, 'select=*&order=kode');
+    APP.refData[def.key] = rows || [];
+    renderKodeSection();
+  } catch (e) { toast('error', 'Gagal Menghapus', e.message); console.error('[SIPRA] kode del', e); }
+}
+
 /* ── Render all ── */
 function renderAll() {
   renderCards(); renderUsulanChart(); renderPie1(); renderPie2();
@@ -653,7 +760,7 @@ function switchPage(pageId, navEl) {
   var bct = document.getElementById('bcText'); if (bct) bct.textContent = labels[pageId] || pageId;
   if (pageId === 'penganggaran') { renderCards(); renderDatabase(); }
   if (pageId === 'pengaturan') renderRefTable();
-  if (pageId === 'manajemen') renderUsers();
+  if (pageId === 'manajemen') { renderUsers(); renderKodeSection(); loadRefTables(); }
   if (pageId === 'dashboard') setTimeout(function () { Object.keys(CHARTS).forEach(function (k) { if (CHARTS[k]) CHARTS[k].resize(); }); }, 60);
   if (window.innerWidth <= 680) toggleSidebar(true);
 }
@@ -694,6 +801,7 @@ if (typeof module !== 'undefined' && module.exports) {
     recordsForYear: recordsForYear, recordsView: recordsView, kodeOf: kodeOf, groupByKode: groupByKode,
     csvCell: csvCell, mapRow: mapRow, toDbRow: toDbRow, amountOf: amountOf,
     authToken: authToken, isLoggedIn: isLoggedIn,
+    REF_TABLES: REF_TABLES, refDef: refDef,
     fmtRp: fmtRp, fmtM: fmtM, yearOptions: yearOptions, STAGES: STAGES, UPSERT_KEY: UPSERT_KEY, TABLE: TABLE,
   };
 }
