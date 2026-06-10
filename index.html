@@ -355,13 +355,13 @@
         <div class="form-sec">Struktur Anggaran (pilih berjenjang)</div>
         <div class="form-grid">
           <div class="fld"><label>BA</label><select id="inBa"></select></div>
-          <div class="fld"><label>Kegiatan</label><select id="inKeg"></select></div>
           <div class="fld"><label>Program</label><select id="inProg" onchange="onCascade('program')"></select></div>
+          <div class="fld"><label>Kegiatan</label><select id="inKeg" onchange="onCascade('kegiatan')"></select></div>
           <div class="fld"><label>KRO</label><select id="inKro" onchange="onCascade('kro')"></select></div>
           <div class="fld"><label>RO</label><select id="inRo" onchange="onCascade('ro')"></select></div>
           <div class="fld"><label>Komponen</label><select id="inKomp" onchange="onCascade('komponen')"></select></div>
           <div class="fld"><label>Sub Komponen</label><input id="inSubkomp" value="A" /></div>
-          <div class="fld"><label>Akun</label><select id="inAkun" onchange="onCascade('akun')"></select></div>
+          <div class="fld"><label>Akun</label><select id="inAkun" onchange="onAkunPick()"></select></div>
         </div>
         <div class="form-sec">Belanja</div>
         <div class="form-grid">
