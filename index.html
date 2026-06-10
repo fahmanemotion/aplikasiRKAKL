@@ -357,7 +357,7 @@
           <div class="fld"><label>RO</label><select id="inRo" onchange="onCascade('ro')"></select></div>
           <div class="fld"><label>Komponen</label><select id="inKomp" onchange="onCascade('komponen')"></select></div>
           <div class="fld"><label>Sub Komponen</label><input id="inSubkomp" value="A" /></div>
-          <div class="fld"><label>Kategori (KATGR)</label><select id="inKategori"><option value="ops">OPS</option><option value="nonops">NON OPS</option></select></div>
+          <div class="fld"><label>Uraian Sub Komponen</label><input id="inSubUraian" placeholder="mis. Kerja Sama dengan Perusahaan Pelayaran" /></div>
           <div class="fld"><label>Sumber Dana (SD)</label><select id="inSd" onchange="onSdChange()"><option value="rm">RM — Rupiah Murni</option><option value="blu">BLU</option></select></div>
           <div class="fld"><label>Akun <span style="color:var(--t3);font-weight:400">(ketik untuk cari)</span></label>
             <div class="combo" id="akunCombo">
@@ -369,8 +369,7 @@
         </div>
         <div class="form-sec">Belanja</div>
         <div class="form-grid">
-          <div class="fld"><label>Jenis Belanja <span style="color:var(--t3);font-weight:400">(otomatis)</span></label><input id="inJenis" readonly placeholder="otomatis dari 2 digit Akun" /></div>
-          <div class="fld"><label>Detail Belanja</label><input id="inDetailBelanja" placeholder="mis. Belanja Kebutuhan Wisuda" /></div>
+          <div class="fld" style="grid-column:1/-1"><label>Detail Belanja</label><input id="inDetailBelanja" placeholder="mis. Belanja Kebutuhan Wisuda" /></div>
         </div>
         <div class="form-sec">Volume &amp; Harga</div>
         <div class="form-grid">
@@ -378,6 +377,7 @@
           <div class="fld"><label>Satuan</label><input id="inSat" placeholder="mis. OP, Bln, PKT" /></div>
           <div class="fld"><label>Harga Satuan (Rp)</label><input id="inHrg" type="number" min="0" value="0" oninput="recalcJumlah()" /></div>
           <div class="fld"><label>Jumlah (otomatis)</label><input id="inJumlah" readonly /></div>
+          <div class="fld"><label>Kategori (KATGR)</label><select id="inKategori"><option value="ops">OPS</option><option value="nonops">NON OPS</option></select></div>
         </div>
       </div>
       <div class="modal-ftr">

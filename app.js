@@ -178,7 +178,7 @@ function mapRow(r) {
     id: r.id, ta: String(r.ta), tahap: r.tahap || 'anggaran',
     ba: r.ba, prog: r.prog, prog_nama: r.prog_nama, keg: r.keg, keg_nama: r.keg_nama,
     kro: r.kro, kro_nama: r.kro_nama, ro: r.ro, ro_nama: r.ro_nama,
-    komp: r.komp, subkomp: r.subkomp, akun: r.akun, detail_akun: r.detail_akun, detail_belanja: r.detail_belanja,
+    komp: r.komp, subkomp: r.subkomp, subkomp_nama: r.subkomp_nama || '', akun: r.akun, detail_akun: r.detail_akun, detail_belanja: r.detail_belanja,
     vol: vol, sat: r.sat, hrg_sat: hrg, jumlah: (r.jumlah != null ? +r.jumlah : vol * hrg),
     sd: r.sd, kategori: r.kategori, jenis: r.jenis || kodeToJenis(r.akun),
   };
@@ -187,7 +187,7 @@ function mapRow(r) {
 function toDbRow(r) {
   return {
     ta: r.ta, tahap: r.tahap, ba: r.ba, prog: r.prog, prog_nama: r.prog_nama, keg: r.keg, keg_nama: r.keg_nama,
-    kro: r.kro, kro_nama: r.kro_nama, ro: r.ro, ro_nama: r.ro_nama || null, komp: r.komp, subkomp: r.subkomp,
+    kro: r.kro, kro_nama: r.kro_nama, ro: r.ro, ro_nama: r.ro_nama || null, komp: r.komp, subkomp: r.subkomp, subkomp_nama: r.subkomp_nama || '',
     akun: r.akun, detail_akun: r.detail_akun, detail_belanja: r.detail_belanja,
     vol: r.vol, sat: r.sat, hrg_sat: r.hrg_sat, sd: r.sd, kategori: r.kategori,
   };
@@ -525,7 +525,7 @@ function downloadKertasKerja() {
     var nR = child(nK, r.keg + '.' + r.kro, refUraian('kro', r.kro, kPath) || r.kro_nama || '', 'kro'); add(nR, col, amt, sd);
     var nO = child(nR, r.keg + '.' + r.kro + '.' + r.ro, refUraian('ro', r.ro, krPath) || r.ro_nama || '', 'ro'); add(nO, col, amt, sd);
     var nC = child(nO, r.komp, refUraian('komponen', r.komp, roPath), 'komponen'); add(nC, col, amt, sd);
-    var nS = child(nC, r.subkomp || '-', '', 'subkomp'); add(nS, col, amt, sd);
+    var nS = child(nC, r.subkomp || '-', r.subkomp_nama || '', 'subkomp'); add(nS, col, amt, sd);
     var nA = child(nS, r.akun, refUraian('akun', r.akun, r.sd) || 'Belanja', 'akun'); nA.sdLabel = r.sd; add(nA, col, amt, sd);
     nA.details.push(r);
   });
@@ -663,7 +663,7 @@ function akunPick(kode) {
   setVal('inAkun', kode);
   var o = akunOpts().filter(function (x) { return x.kode === kode; })[0];
   setVal('inAkunSearch', o ? (o.kode + (o.uraian ? ' — ' + o.uraian : '')) : kode);
-  akunClose(); refreshJenis();
+  akunClose();
 }
 function akunClose() { var p = document.getElementById('akunPanel'); if (p) p.classList.remove('open'); }
 function akunKey(e) {
@@ -681,12 +681,6 @@ function setAkunValue(kode) {
   setVal('inAkun', kode || '');
   setVal('inAkunSearch', kode ? (kode + ' — ' + uraianOf('akun', kode)) : '');
 }
-function refreshJenis() {
-  var j = document.getElementById('inJenis'); if (!j) return;
-  var ak = gv('inAkun');
-  j.value = ak ? JENIS_LABEL[kodeToJenis(ak)] : '';
-}
-function onAkunPick() { refreshJenis(); }  /* dipertahankan untuk kompatibilitas */
 function openInput(prefill) {
   if (!requireLogin('input usulan')) return;
   APP.editId = prefill ? String(prefill.id) : null;
@@ -708,8 +702,8 @@ function openInput(prefill) {
   // Sumber Dana → memfilter Akun
   setVal('inSd', s.sd || 'rm'); setVal('inKategori', s.kategori);
   setAkunValue(s.akun); akunClose();
-  setVal('inSubkomp', s.subkomp);
-  setVal('inDetailBelanja', s.detail_belanja); refreshJenis();
+  setVal('inSubkomp', s.subkomp); setVal('inSubUraian', s.subkomp_nama || '');
+  setVal('inDetailBelanja', s.detail_belanja);
   setVal('inVol', s.vol); setVal('inSat', s.sat); setVal('inHrg', s.hrg_sat);
   recalcJumlah();
   var ttl = document.getElementById('inModalTitle');
@@ -720,7 +714,7 @@ function openInput(prefill) {
 }
 // Sumber Dana berubah → Akun mengikuti (filter), kosongkan pilihan akun & detail
 function onSdChange() {
-  setAkunValue(''); akunClose(); refreshJenis();
+  setAkunValue(''); akunClose();
 }
 function closeInput() { var m = document.getElementById('inputModal'); if (m) m.classList.remove('open'); APP.editId = null; }
 function recalcJumlah() {
@@ -751,7 +745,7 @@ async function submitInput() {
   var rec = {
     ta: orig ? orig.ta : APP.year, tahap: orig ? orig.tahap : APP.stage,
     ba: gv('inBa').trim() || '022', prog: prog, keg: keg,
-    kro: kro, ro: ro, komp: gv('inKomp').trim(), subkomp: gv('inSubkomp').trim(),
+    kro: kro, ro: ro, komp: gv('inKomp').trim(), subkomp: gv('inSubkomp').trim(), subkomp_nama: gv('inSubUraian').trim(),
     akun: gv('inAkun').trim(), detail_akun: uraianOf('akun', gv('inAkun').trim()),
     detail_belanja: gv('inDetailBelanja').trim(),
     vol: parseFloat(gv('inVol')) || 0, sat: gv('inSat').trim(), hrg_sat: parseFloat(gv('inHrg')) || 0,
