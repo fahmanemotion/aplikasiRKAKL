@@ -38,6 +38,7 @@ var APP = {
   kodeTab: 'ba',
   kodeEditId: null,
   records: [],
+  importData: null,
 };
 
 /* ── Util ── */
@@ -602,6 +603,235 @@ function downloadKertasKerja() {
   toast('success', 'Kertas Kerja Diunduh', 'Format Komposisi Anggaran · TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + ' · ' + rows.length + ' detail.');
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   UPLOAD / IMPOR KERTAS KERJA  →  records aplikasi
+   Membaca file Excel "Komposisi Anggaran" (format DETAIL) lalu
+   mengubah tiap baris Detail Belanja menjadi 1 record usulan_belanja.
+   Mendukung file kertas kerja asli (.xlsx) maupun hasil unduhan app (.xls).
+   Fungsi inti (kkParseMatrix) bekerja atas array-of-arrays agar bisa diuji.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Angka toleran: "1.234.567" (id) / "1,234,567" (en) / number → Number
+function kkNum(x) {
+  if (x == null || x === '') return 0;
+  if (typeof x === 'number') return isFinite(x) ? x : 0;
+  var s = String(x).trim().replace(/\s/g, '');
+  if (!s) return 0;
+  // buang pemisah ribuan titik & koma, sisakan digit dan minus
+  s = s.replace(/[.,](?=\d{3}\b)/g, '').replace(/[.,]/g, '');
+  var n = parseFloat(s.replace(/[^0-9-]/g, ''));
+  return isFinite(n) ? n : 0;
+}
+function kkText(row, i) { return (i != null && i >= 0 && row[i] != null) ? String(row[i]).trim() : ''; }
+
+// Deteksi indeks kolom dari baris header (cari "KODE" & "URAIAN")
+function kkDetectCols(aoa) {
+  for (var r = 0; r < Math.min(aoa.length, 15); r++) {
+    var row = aoa[r] || [], txt = row.map(function (c) { return String(c == null ? '' : c).trim(); });
+    if (txt.indexOf('KODE') === -1 || txt.indexOf('URAIAN') === -1) continue;
+    function first(name) { return txt.indexOf(name); }
+    function last(names) { var idx = -1; txt.forEach(function (t, i) { if (names.indexOf(t) > -1) idx = i; }); return idx; }
+    var c = {
+      headerRow: r,
+      kode: first('KODE'), uraian: first('URAIAN'),
+      vol: first('Vol'), sat: first('Satuan'), harga: first('Harga'), jumlah: first('Jumlah'),
+      sd: last(['Sumber Dana', 'SD']),
+    };
+    if (c.sat < 0) c.sat = first('Sat');
+    return c;
+  }
+  // fallback: tata letak kertas kerja PIP (KODE=B … Jumlah=V … SD=AG)
+  return { headerRow: 7, kode: 1, uraian: 2, vol: 18, sat: 19, harga: 20, jumlah: 21, sd: 32 };
+}
+
+// Penanda baris Detail Belanja pada kolom URAIAN ("- ..." atau "> ...")
+function kkIsDetail(u) { u = (u || '').trim(); return u.length > 0 && (u.charAt(0) === '-' || u.charAt(0) === '>'); }
+function kkCleanName(u) { return (u || '').trim().replace(/^[->\s]+/, '').trim(); }
+
+// Tahap & TA dari baris judul (default mengikuti selektor dashboard)
+function kkMeta(aoa, cols) {
+  var head = '';
+  for (var r = 0; r < Math.min(aoa.length, (cols.headerRow || 8)); r++) head += ' ' + (aoa[r] || []).join(' ');
+  head = head.toUpperCase();
+  var tahap = null;
+  // Prioritas: label "PAGU <TAHAP>" (judul memuat kata "ANGGARAN" pada "KOMPOSISI ANGGARAN")
+  var pm = head.match(/PAGU\s+(KEBUTUHAN|INDIKATIF|ANGGARAN|ALOKASI)/);
+  if (pm) tahap = pm[1].toLowerCase();
+  else ['kebutuhan', 'indikatif', 'alokasi', 'anggaran'].forEach(function (k) { if (tahap == null && head.indexOf(k.toUpperCase()) > -1) tahap = k; });
+  var my = head.match(/T\.?A\.?\s*(\d{4})/) || head.match(/(20\d{2})/);
+  var satker = '';
+  (aoa.slice(0, cols.headerRow || 8)).forEach(function (row) {
+    (row || []).forEach(function (v) { var s = String(v == null ? '' : v); if (/POLITEKNIK|PIP|SATKER|KEMENTERIAN/i.test(s) && s.length > satker.length) satker = s.trim(); });
+  });
+  return { tahap: tahap, ta: my ? my[1] : null, satker: satker };
+}
+
+/* Inti parser — array baris (kolom 0-indeks) → { records, meta } */
+function kkParseMatrix(aoa, override) {
+  override = override || {};
+  var cols = kkDetectCols(aoa);
+  var meta = kkMeta(aoa, cols);
+  var ta = String(override.ta || meta.ta || APP.year);
+  var tahap = override.tahap || meta.tahap || APP.stage;
+
+  var ctx = { ba: '022', unit: '', prog: '', keg: '', kro: '', ro: '', komp: '', subkomp: '', subkomp_nama: '', akun: '', detail_akun: '', sd: 'rm', kategori: 'nonops', jenis: 'barang', prog_nama: '', keg_nama: '', kro_nama: '', ro_nama: '' };
+  var recs = [], started = false;
+
+  function reset() { for (var i = 0; i < arguments.length; i++) ctx[arguments[i]] = ''; }
+
+  for (var i = 0; i < aoa.length; i++) {
+    var row = aoa[i] || [];
+    var k = kkText(row, cols.kode), u = kkText(row, cols.uraian);
+
+    if (!started) { if (/^\d{3}\.\d+$/.test(k)) started = true; else continue; }
+
+    if (k === '') {
+      if (kkIsDetail(u)) {
+        var vol = kkNum(row[cols.vol]), sat = kkText(row, cols.sat), hrg = kkNum(row[cols.harga]), jv = kkNum(row[cols.jumlah]);
+        recs.push({
+          ta: ta, tahap: tahap, ba: ctx.ba, prog: ctx.prog, prog_nama: ctx.prog_nama,
+          keg: ctx.keg, keg_nama: ctx.keg_nama, kro: ctx.kro, kro_nama: ctx.kro_nama, ro: ctx.ro, ro_nama: ctx.ro_nama,
+          komp: ctx.komp, subkomp: ctx.subkomp || 'A', subkomp_nama: ctx.subkomp_nama,
+          akun: ctx.akun, detail_akun: ctx.detail_akun, detail_belanja: kkCleanName(u),
+          vol: vol, sat: sat, hrg_sat: hrg, jumlah: (jv > 0 ? jv : vol * hrg),
+          sd: ctx.sd, kategori: ctx.kategori, jenis: ctx.jenis,
+        });
+      }
+      continue;
+    }
+    if (/^\d{3}\.\d+$/.test(k)) { var p = k.split('.'); ctx.ba = p[0]; ctx.unit = p[1]; continue; }              // Unit/Satker
+    if (/^\d{3}\.\d+\..*[A-Za-z].*$/.test(k)) { ctx.prog = k.slice(ctx.ba.length + 1); ctx.prog_nama = u; reset('keg', 'kro', 'ro', 'komp', 'subkomp', 'akun'); continue; } // Program
+    if (/^\d{4}$/.test(k)) { ctx.keg = k; ctx.keg_nama = u; reset('kro', 'ro', 'komp', 'subkomp', 'akun'); continue; }     // Kegiatan
+    if (/^\d{4}\.[A-Za-z]{2,5}$/.test(k)) { ctx.kro = k.split('.').pop(); ctx.kro_nama = u; reset('ro', 'komp', 'subkomp', 'akun'); continue; } // KRO
+    if (/^\d{4}\.[A-Za-z]{2,5}\.\d{3}$/.test(k)) { ctx.ro = k.split('.').pop(); ctx.ro_nama = u; reset('komp', 'subkomp', 'akun'); continue; }    // RO
+    if (/^\d{3}$/.test(k)) { ctx.komp = k; reset('subkomp', 'akun'); continue; }                                 // Komponen
+    if (/^[A-Za-z]\d?$/.test(k)) { ctx.subkomp = k; ctx.subkomp_nama = u; ctx.akun = ''; continue; }             // Sub Komponen
+    if (/^\d{6}$/.test(k)) {                                                                                     // Akun
+      ctx.akun = k; ctx.detail_akun = u; ctx.jenis = kodeToJenis(k);
+      var sdl = kkText(row, cols.sd).toLowerCase();
+      ctx.sd = sdl === 'blu' ? 'blu' : (sdl === 'rm' ? 'rm' : ctx.sd);
+      var ops = 0, non = 0, j = cols.jumlah;
+      if (j >= 0) { ops = kkNum(row[j + 1]) + kkNum(row[j + 2]) + kkNum(row[j + 3]); non = kkNum(row[j + 4]) + kkNum(row[j + 5]) + kkNum(row[j + 6]); }
+      ctx.kategori = ops > non ? 'ops' : (non > 0 ? 'nonops' : (ctx.jenis === 'pegawai' ? 'ops' : 'nonops'));
+      continue;
+    }
+  }
+  return { records: recs, meta: { ta: ta, tahap: tahap, satker: meta.satker, count: recs.length, total: recs.reduce(function (a, r) { return a + (+r.jumlah || 0); }, 0) } };
+}
+
+/* ── Glue browser: baca File → array-of-arrays via SheetJS ── */
+function kkReadFile(file) {
+  return new Promise(function (resolve, reject) {
+    if (typeof XLSX === 'undefined') { reject(new Error('Pustaka pembaca Excel (SheetJS) belum dimuat.')); return; }
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        var sheet = wb.Sheets['DETAIL'] || wb.Sheets[wb.SheetNames[0]];
+        var aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+        resolve(aoa);
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = function () { reject(new Error('Gagal membaca file.')); };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function openImport() {
+  if (!requireLogin('mengunggah kertas kerja')) return;
+  APP.importData = null;
+  var inp = document.getElementById('impFile'); if (inp) inp.value = '';
+  var pv = document.getElementById('impPreview'); if (pv) pv.innerHTML = '';
+  var info = document.getElementById('impInfo');
+  if (info) info.innerHTML = '<i class="fas fa-circle-info"></i> Unggah file Excel kertas kerja (sheet <strong>DETAIL</strong>, format Komposisi Anggaran). Sistem akan membaca tiap baris Detail Belanja menjadi usulan.';
+  // default tujuan TA & Tahap mengikuti dashboard
+  var ty = document.getElementById('impTa'); if (ty) ty.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '"' + (y === APP.year ? ' selected' : '') + '>TA ' + y + '</option>'; }).join('');
+  var tp = document.getElementById('impTahap'); if (tp) tp.innerHTML = STAGES.map(function (s) { return '<option value="' + s.key + '"' + (s.key === APP.stage ? ' selected' : '') + '>' + s.label + '</option>'; }).join('');
+  var cb = document.getElementById('impConfirmBtn'); if (cb) { cb.disabled = true; cb.innerHTML = '<i class="fas fa-cloud-arrow-up"></i> Simpan ke Database'; }
+  var m = document.getElementById('importModal'); if (m) m.classList.add('open');
+}
+function closeImport() { var m = document.getElementById('importModal'); if (m) m.classList.remove('open'); APP.importData = null; }
+
+async function handleImportFile(input) {
+  var file = input && input.files && input.files[0]; if (!file) return;
+  var pv = document.getElementById('impPreview');
+  if (pv) pv.innerHTML = '<div class="imp-loading"><i class="fas fa-spinner fa-spin"></i> Membaca ' + esc(file.name) + ' …</div>';
+  try {
+    var aoa = await kkReadFile(file);
+    var parsed = kkParseMatrix(aoa, {});
+    // sinkron pilihan TA/Tahap dengan yang terdeteksi (bila ada)
+    if (parsed.meta.ta) { var ty = document.getElementById('impTa'); if (ty) ty.value = parsed.meta.ta; }
+    if (parsed.meta.tahap) { var tp = document.getElementById('impTahap'); if (tp) tp.value = parsed.meta.tahap; }
+    APP.importData = { records: parsed.records, meta: parsed.meta, fileName: file.name };
+    renderImportPreview();
+  } catch (e) {
+    APP.importData = null;
+    if (pv) pv.innerHTML = '<div class="imp-err"><i class="fas fa-triangle-exclamation"></i> ' + esc(e.message) + '</div>';
+    var cb = document.getElementById('impConfirmBtn'); if (cb) cb.disabled = true;
+    console.error('[SIPRA] import parse', e);
+  }
+}
+
+function renderImportPreview() {
+  var d = APP.importData, pv = document.getElementById('impPreview'); if (!d || !pv) return;
+  var recs = d.records;
+  if (!recs.length) {
+    pv.innerHTML = '<div class="imp-err"><i class="fas fa-triangle-exclamation"></i> Tidak ada baris Detail Belanja terbaca. Pastikan sheet DETAIL & format kertas kerja sesuai.</div>';
+    var cb0 = document.getElementById('impConfirmBtn'); if (cb0) cb0.disabled = true; return;
+  }
+  var total = recs.reduce(function (a, r) { return a + (+r.jumlah || 0); }, 0);
+  var akun = {}, kat = { ops: 0, nonops: 0 }, sd = { rm: 0, blu: 0 };
+  recs.forEach(function (r) { akun[r.akun] = 1; kat[r.kategori] = (kat[r.kategori] || 0) + r.jumlah; sd[r.sd] = (sd[r.sd] || 0) + r.jumlah; });
+  var kegSet = {}; recs.forEach(function (r) { kegSet[kodeOf(r)] = 1; });
+  var sample = recs.slice(0, 8).map(function (r) {
+    return '<tr><td class="mono">' + esc(r.akun) + '</td><td>' + esc(r.detail_belanja) + '</td>' +
+      '<td class="mono" style="text-align:right">' + r.vol + '</td><td>' + esc(r.sat) + '</td>' +
+      '<td class="mono" style="text-align:right">' + fmtRp(r.hrg_sat) + '</td>' +
+      '<td class="mono" style="text-align:right;font-weight:600">' + fmtRp(r.jumlah) + '</td>' +
+      '<td>' + sdChip(r.sd) + '</td><td style="text-align:center">' + catChip(r.kategori) + '</td></tr>';
+  }).join('');
+  pv.innerHTML =
+    '<div class="imp-stats">' +
+    '<div class="imp-stat"><span>' + recs.length + '</span>Detail Belanja</div>' +
+    '<div class="imp-stat"><span>' + Object.keys(akun).length + '</span>Akun</div>' +
+    '<div class="imp-stat"><span>' + Object.keys(kegSet).length + '</span>Baris Akun</div>' +
+    '<div class="imp-stat tot"><span>' + fmtM(total) + '</span>Total Nilai</div>' +
+    '</div>' +
+    '<div class="imp-note"><i class="fas fa-circle-info"></i> Operasional ' + fmtRp(kat.ops) + ' · Non-Operasional ' + fmtRp(kat.nonops) + ' · RM ' + fmtRp(sd.rm) + ' · BLU ' + fmtRp(sd.blu) + '. Total dihitung dari Volume × Harga tiap baris, sehingga dapat sedikit berbeda dari pagu resmi bila ada baris bernilai nol pada file.</div>' +
+    '<div class="imp-tbl-wrap"><table class="imp-tbl"><thead><tr><th>AKUN</th><th>DETAIL BELANJA</th><th style="text-align:right">VOL</th><th>SAT</th><th style="text-align:right">HRG SAT</th><th style="text-align:right">JUMLAH</th><th>SD</th><th>KAT</th></tr></thead><tbody>' + sample + '</tbody></table>' +
+    (recs.length > 8 ? '<div class="imp-more">… dan ' + (recs.length - 8) + ' baris lainnya</div>' : '') + '</div>';
+  var cb = document.getElementById('impConfirmBtn'); if (cb) cb.disabled = false;
+}
+
+async function confirmImport() {
+  if (!APP.importData || !APP.importData.records.length) { toast('error', 'Tidak Ada Data', 'Unggah file kertas kerja dulu.'); return; }
+  if (!requireLogin('menyimpan hasil unggahan')) return;
+  var ta = gv('impTa') || APP.year, tahap = gv('impTahap') || APP.stage;
+  var recs = APP.importData.records.map(function (r) { var c = {}; for (var k in r) c[k] = r[k]; c.ta = String(ta); c.tahap = tahap; return c; });
+  var replace = (document.getElementById('impReplace') || {}).checked;
+  if (!confirm('Simpan ' + recs.length + ' Detail Belanja ke database untuk TA ' + ta + ' tahap ' + (STAGE_LABEL[tahap] || tahap) + '?\n' +
+    (replace ? '⚠ Data lama pada TA & tahap ini akan DIHAPUS lebih dulu.' : 'Baris dengan kunci sama akan diperbarui (upsert).'))) return;
+  var btn = document.getElementById('impConfirmBtn'); if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyimpan…'; }
+  try {
+    if (replace) {
+      await supaWrite('DELETE', TABLE, { query: 'ta=eq.' + encodeURIComponent(ta) + '&tahap=eq.' + encodeURIComponent(tahap) });
+    }
+    var rows = recs.map(toDbRow);
+    for (var i = 0; i < rows.length; i += 200) {
+      await supaWrite('POST', TABLE, { query: UPSERT_KEY, body: rows.slice(i, i + 200), upsert: true });
+    }
+    toast('success', 'Kertas Kerja Diunggah', rows.length + ' Detail Belanja tersimpan · TA ' + ta + ' tahap ' + (STAGE_LABEL[tahap] || tahap) + '. Memuat ulang…');
+    closeImport();
+    APP.year = String(ta); APP.stage = tahap;
+    var ts = document.getElementById('taSelect'); if (ts) ts.value = String(ta);
+    var psel = document.getElementById('paguSelect'); if (psel) psel.value = tahap;
+    await loadFromSupabase();
+  } catch (e) {
+    toast('error', 'Gagal Menyimpan', e.message); console.error('[SIPRA] import save', e);
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-cloud-arrow-up"></i> Simpan ke Database'; }
+  }
+}
+
 /* ── Form Input Usulan (modal) ─────────────────────────────────────── */
 function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
 function setVal(id, v) { var el = document.getElementById(id); if (el) el.value = (v == null ? '' : v); }
@@ -1023,6 +1253,8 @@ if (typeof module !== 'undefined' && module.exports) {
     REF_TABLES: REF_TABLES, refDef: refDef,
     CASCADE: CASCADE, childrenOf: childrenOf, uraianOf: uraianOf, pathOf: pathOf,
     kkColOf: kkColOf, refUraian: refUraian, downloadKertasKerja: downloadKertasKerja,
+    kkNum: kkNum, kkDetectCols: kkDetectCols, kkIsDetail: kkIsDetail, kkCleanName: kkCleanName,
+    kkMeta: kkMeta, kkParseMatrix: kkParseMatrix,
     fmtRp: fmtRp, fmtM: fmtM, yearOptions: yearOptions, STAGES: STAGES, UPSERT_KEY: UPSERT_KEY, TABLE: TABLE,
   };
 }

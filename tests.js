@@ -105,6 +105,130 @@ eq(A.kkColOf({ akun: '521111', kategori: 'nonops', sd: 'rm' }), 'Z', 'Barang non
 eq(A.kkColOf({ akun: '525112', kategori: 'nonops', sd: 'blu' }), 'AA', 'Barang non-op BLU → AA');
 eq(A.kkColOf({ akun: '532111', kategori: 'nonops', sd: 'rm' }), 'AB', 'Modal → AB');
 
+console.log('\n\u25B6 uraian sub komponen (subkomp_nama)');
+eq(A.mapRow({ id: 1, ta: '2027', tahap: 'anggaran', akun: '525112', vol: 2, hrg_sat: 1000, subkomp: 'A', subkomp_nama: 'Kerja Sama Pelayaran' }).subkomp_nama, 'Kerja Sama Pelayaran', 'mapRow membawa subkomp_nama');
+eq(A.mapRow({ id: 2, ta: '2027', tahap: 'anggaran', akun: '525112', vol: 1, hrg_sat: 1, subkomp: 'A' }).subkomp_nama, '', 'mapRow default subkomp_nama = ""');
+eq(A.toDbRow({ subkomp: 'A', subkomp_nama: 'Sosialisasi' }).subkomp_nama, 'Sosialisasi', 'toDbRow menyertakan subkomp_nama');
+ok(!('jenis' in A.toDbRow({ akun: '511111' })), 'toDbRow tidak mengirim jenis (otomatis di DB)');
+
+console.log('\n\u25B6 ekspor kertas kerja (Komposisi Anggaran)');
+(function () {
+  var captured = '';
+  global.document = { getElementById: function () { return null; }, createElement: function () { return { click: function () {}, remove: function () {}, set href(v) {}, set download(v) {} }; }, body: { appendChild: function () {} }, addEventListener: function () {} };
+  global.URL = { createObjectURL: function () { return 'blob:x'; }, revokeObjectURL: function () {} };
+  global.Blob = function (parts) { captured = parts.join(''); };
+  A.APP.year = '2027'; A.APP.stage = 'anggaran';
+  A.APP.refData = {
+    ba: [], program: [{ kode: '12.DL', uraian: 'Program Pendidikan', induk: '' }],
+    kegiatan: [{ kode: '3996', uraian: 'Pendidikan Transportasi', induk: '12.DL' }],
+    kro: [{ kode: 'AEC', uraian: 'Kerja sama', induk: '12.DL.3996' }],
+    ro: [{ kode: '002', uraian: 'Kerjasama Antar Instansi', induk: '12.DL.3996.AEC' }],
+    komponen: [{ kode: '051', uraian: 'Kerjasama Antar Instansi', induk: '12.DL.3996.AEC.002' }],
+    akun: [{ kode: '525112', uraian: 'Belanja Barang', induk: 'blu' }],
+  };
+  function rec(detail, vol, hrg) { return { id: detail, ta: '2027', tahap: 'anggaran', ba: '022', prog: '12.DL', keg: '3996', kro: 'AEC', ro: '002', komp: '051', subkomp: 'A', subkomp_nama: 'Kerja Sama Pelayaran', akun: '525112', detail_belanja: detail, vol: vol, sat: 'Paket', hrg_sat: hrg, jumlah: vol * hrg, sd: 'blu', kategori: 'nonops' }; }
+  A.APP.records = [rec('Belanja Kebutuhan', 9, 500000), rec('Konsumsi Snack', 135, 26000)];
+  A.downloadKertasKerja();
+  function has(x) { return captured.indexOf(x) >= 0; }
+  ok(has('KOMPOSISI ANGGARAN'), 'judul KOMPOSISI ANGGARAN');
+  ok(has('022.12.DL'), 'kode Program 022.12.DL');
+  ok(has('>3996.AEC<'), 'kode KRO 3996.AEC');
+  ok(has('3996.AEC.002'), 'kode RO 3996.AEC.002');
+  ok(has('525112'), 'kode Akun 525112');
+  ok(has('Kerja Sama Pelayaran'), 'uraian Sub Komponen tampil di kertas kerja');
+  ok(has('- Belanja Kebutuhan') && has('- Konsumsi Snack'), 'dua baris detail belanja');
+  ok(has('8010000'), 'subtotal akun = 4.500.000 + 3.510.000 = 8.010.000');
+  ok(has('>BLU</td>'), 'label Sumber Dana BLU pada baris akun');
+  ok(has('Belanja Operasional') && has('Belanja Non Operasional') && has('Jumlah Raya'), 'header matriks lengkap');
+})();
+
+console.log('\n\u25B6 impor kertas kerja: angka, penanda detail, deteksi kolom');
+eq(A.kkNum('1.234.567'), 1234567, 'kkNum format id (titik ribuan)');
+eq(A.kkNum('12.510.000'), 12510000, 'kkNum 12.510.000');
+eq(A.kkNum(5000), 5000, 'kkNum number apa adanya');
+eq(A.kkNum(''), 0, 'kkNum kosong = 0');
+ok(A.kkIsDetail('- Belanja Kebutuhan') === true, 'penanda "- " = detail');
+ok(A.kkIsDetail('-Konsumsi Snack') === true, 'penanda "-" tanpa spasi = detail');
+ok(A.kkIsDetail('> Perlengkapan Diklat') === true, 'penanda ">" = detail');
+ok(A.kkIsDetail('Belanja Barang') === false, 'baris akun (tanpa penanda) bukan detail');
+eq(A.kkCleanName(' -Konsumsi Snack'), 'Konsumsi Snack', 'cleanName buang "-" & spasi');
+eq(A.kkCleanName('> Perlengkapan Diklat'), 'Perlengkapan Diklat', 'cleanName buang ">"');
+
+console.log('\n\u25B6 impor kertas kerja: meta tahap & TA dari judul');
+(function () {
+  function R(m) { var a = []; for (var i = 0; i < 33; i++) a.push(''); for (var k in m) a[k] = m[k]; return a; }
+  var fx = [
+    R({ 1: 'KOMPOSISI ANGGARAN PAGU KEBUTUHAN' }),
+    R({ 1: 'POLITEKNIK ILMU PELAYARAN MAKASSAR' }),
+    R({ 1: 'T.A 2027' }),
+    R({ 1: 'KODE', 2: 'URAIAN', 18: 'Vol', 19: 'Satuan', 20: 'Harga', 21: 'Jumlah', 32: 'Sumber Dana' }),
+    R({ 1: '022.12' }),
+    R({ 1: '022.12.DL', 2: 'Program Pendidikan' }),
+    R({ 1: '3996', 2: 'Pendidikan Transportasi' }),
+    R({ 1: '3996.AEC', 2: 'Kerja sama' }),
+    R({ 1: '3996.AEC.002', 2: 'Kerjasama Antar Instansi' }),
+    R({ 1: '051', 2: 'Kerjasama' }),
+    R({ 1: 'A', 2: 'Kerja Sama Pelayaran' }),
+    R({ 1: '525112', 2: 'Belanja Barang', 21: 5500000, 26: 5500000, 32: 'BLU' }), // AA (idx26) nonop barang BLU
+    R({ 2: '- Belanja Kebutuhan', 18: 9, 19: 'Paket', 20: 500000, 21: 4500000 }),
+    R({ 2: '> Perlengkapan', 18: 10, 19: 'Paket', 20: 100000, 21: 1000000 }),
+    R({ 3: '1) Goodie Bag (rincian)', 18: 1, 19: 'bh', 20: 55000 }),               // sub di kolom D → diabaikan
+    R({ 1: '511111', 2: 'Belanja Gaji Pokok', 21: 12000000, 22: 12000000, 32: 'RM' }), // W (idx22) ops pegawai RM
+    R({ 2: '- Gaji Pokok PNS', 18: 12, 19: 'BLN', 20: 1000000, 21: 12000000 }),
+    R({ 1: '532111', 2: 'Belanja Modal', 21: 2000000, 27: 2000000, 32: 'RM' }),    // AB (idx27) modal
+    R({ 2: '- Pengadaan Alat', 18: 1, 19: 'PKT', 20: 2000000, 21: 2000000 }),
+  ];
+  var cols = A.kkDetectCols(fx);
+  eq(cols.kode, 1, 'deteksi kolom KODE = indeks 1');
+  eq(cols.uraian, 2, 'deteksi kolom URAIAN = indeks 2');
+  eq(cols.jumlah, 21, 'deteksi kolom Jumlah = indeks 21');
+  eq(cols.sd, 32, 'deteksi kolom Sumber Dana (terakhir) = indeks 32');
+  var meta = A.kkMeta(fx, cols);
+  eq(meta.tahap, 'kebutuhan', 'tahap = kebutuhan (bukan "anggaran" dari judul KOMPOSISI ANGGARAN)');
+  eq(meta.ta, '2027', 'TA = 2027 dari "T.A 2027"');
+
+  var out = A.kkParseMatrix(fx, {});
+  eq(out.records.length, 4, '4 Detail Belanja (sub kolom D diabaikan)');
+  eq(out.meta.total, 19500000, 'total = 4.5jt + 1jt + 12jt + 2jt');
+  var r0 = out.records[0];
+  eq(r0.detail_belanja, 'Belanja Kebutuhan', 'detail 1 nama bersih');
+  eq(r0.prog, '12.DL', 'prog dari "022.12.DL"');
+  eq(r0.keg, '3996', 'keg');
+  eq(r0.kro, 'AEC', 'kro dari "3996.AEC"');
+  eq(r0.ro, '002', 'ro dari "3996.AEC.002"');
+  eq(r0.komp, '051', 'komponen');
+  eq(r0.subkomp, 'A', 'sub komponen');
+  eq(r0.subkomp_nama, 'Kerja Sama Pelayaran', 'uraian sub komponen terbawa');
+  eq(r0.akun, '525112', 'akun');
+  eq(r0.jumlah, 4500000, 'jumlah = vol × harga');
+  eq(r0.sd, 'blu', 'sumber dana BLU dari label AG');
+  eq(r0.kategori, 'nonops', 'kategori non-op (nilai di kolom AA)');
+  eq(r0.jenis, 'barang', 'jenis barang (akun 52x)');
+  eq(out.records[1].detail_belanja, 'Perlengkapan', 'detail ">" ikut terbaca');
+  eq(out.records[2].jenis, 'pegawai', 'akun 511111 → pegawai');
+  eq(out.records[2].kategori, 'ops', 'pegawai di kolom W → ops');
+  eq(out.records[2].sd, 'rm', 'sumber dana RM');
+  eq(out.records[3].jenis, 'modal', 'akun 532111 → modal');
+  eq(out.records[3].kategori, 'nonops', 'modal di kolom AB → non-op');
+
+  // override TA & tahap (tujuan dipilih user di modal)
+  var ov = A.kkParseMatrix(fx, { ta: '2026', tahap: 'alokasi' });
+  eq(ov.records[0].ta, '2026', 'override TA tujuan');
+  eq(ov.records[0].tahap, 'alokasi', 'override tahap tujuan');
+
+  // round-trip: hasil impor bisa diunduh ulang sebagai kertas kerja
+  var captured = '';
+  global.document = { getElementById: function () { return null; }, createElement: function () { return { click: function () {}, remove: function () {}, set href(v) {}, set download(v) {} }; }, body: { appendChild: function () {} }, addEventListener: function () {} };
+  global.URL = { createObjectURL: function () { return 'blob:x'; }, revokeObjectURL: function () {} };
+  global.Blob = function (parts) { captured = parts.join(''); };
+  A.APP.records = out.records; A.APP.year = '2027'; A.APP.stage = 'kebutuhan';
+  A.APP.refData = { ba: [], program: [], kegiatan: [], kro: [], ro: [], komponen: [], akun: [] };
+  A.downloadKertasKerja();
+  ok(captured.indexOf('KOMPOSISI ANGGARAN') >= 0, 'round-trip: unduhan memuat judul kertas kerja');
+  ok(captured.indexOf('022.12.DL') >= 0 && captured.indexOf('525112') >= 0, 'round-trip: kode hierarki & akun tampil');
+  ok(captured.indexOf('19500000') >= 0, 'round-trip: Jumlah Raya = total impor 19.500.000');
+})();
+
 console.log('\n' + '='.repeat(50));
 console.log('HASIL: ' + pass + ' lulus, ' + fail + ' gagal');
 console.log(fail === 0 ? 'Semua pengujian LULUS \u2705' : 'ADA YANG GAGAL \u274C');

@@ -195,7 +195,7 @@
             <div class="sec-title" style="margin-bottom:12px">Input Usulan Anggaran</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn-primary" onclick="openInput()"><i class="fas fa-pen-to-square"></i> Input</button>
-              <button class="btn-sec" onclick="comingSoon()"><i class="fas fa-file-arrow-up"></i> Upload Data Keuangan</button>
+              <button class="btn-sec" onclick="openImport()"><i class="fas fa-file-arrow-up"></i> Upload Data Keuangan</button>
               <button class="btn-sec" onclick="downloadKertasKerja()"><i class="fas fa-file-arrow-down"></i> Download Kertas Kerja</button>
             </div>
           </div>
@@ -243,7 +243,7 @@
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
               <button class="btn-sec" onclick="comingSoon()"><i class="fas fa-plus"></i> Tambah Manual</button>
-              <button class="btn-sec" onclick="comingSoon()"><i class="fas fa-file-arrow-up"></i> Unggah Data Keuangan</button>
+              <button class="btn-sec" onclick="openImport()"><i class="fas fa-file-arrow-up"></i> Unggah Data Keuangan</button>
             </div>
           </div>
         </div>
@@ -387,9 +387,39 @@
     </div>
   </div>
 
+  <!-- ═══════════════ MODAL UNGGAH KERTAS KERJA ═══════════════ -->
+  <div class="modal-bg" id="importModal">
+    <div class="modal" style="max-width:760px">
+      <div class="modal-hdr">
+        <div class="modal-title" id="importModalTitle"><i class="fas fa-file-arrow-up" style="color:var(--blue);margin-right:8px"></i>Unggah Kertas Kerja</div>
+        <button class="modal-close" onclick="closeImport()"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body" style="max-height:72vh;overflow:auto">
+        <div class="imp-ctx" id="impInfo"></div>
+        <label class="imp-drop" for="impFile">
+          <input type="file" id="impFile" accept=".xlsx,.xls,.xlsm" onchange="handleImportFile(this)" hidden>
+          <i class="fas fa-cloud-arrow-up"></i>
+          <div><strong>Pilih file Excel</strong> kertas kerja (.xlsx / .xls)</div>
+          <div class="imp-drop-sub">Sheet DETAIL · format Komposisi Anggaran</div>
+        </label>
+        <div class="imp-target">
+          <div class="fld"><label>Tahun Anggaran tujuan</label><select id="impTa"></select></div>
+          <div class="fld"><label>Tahap PAGU tujuan</label><select id="impTahap"></select></div>
+          <label class="imp-chk"><input type="checkbox" id="impReplace"> Ganti data lama pada TA &amp; tahap ini</label>
+        </div>
+        <div id="impPreview"></div>
+      </div>
+      <div class="modal-ftr">
+        <button class="btn-sec" onclick="closeImport()">Batal</button>
+        <button class="btn-primary" id="impConfirmBtn" onclick="confirmImport()" disabled><i class="fas fa-cloud-arrow-up"></i> Simpan ke Database</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-box" id="toastBox"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

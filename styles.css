@@ -494,3 +494,35 @@ input,select{font-family:var(--font);outline:none}
 .combo-item:hover,.combo-item.hi{background:var(--blue-50,#eff4ff)}
 .ci-kode{font-family:Consolas,monospace;font-weight:700;color:var(--blue);margin-right:7px}
 .combo-empty{padding:10px;color:var(--t3);font-size:13px}
+
+/* ── Unggah Kertas Kerja (modal impor) ─────────────────────────────── */
+.imp-ctx{background:var(--bg);border:1px solid var(--bd);border-radius:var(--r2);padding:10px 12px;font-size:12px;color:var(--t2);line-height:1.5;margin-bottom:14px}
+.imp-ctx i{color:var(--blue);margin-right:6px}
+.imp-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;
+  border:2px dashed var(--bd2);border-radius:var(--r2);padding:26px 16px;cursor:pointer;color:var(--t2);
+  transition:border-color .15s,background .15s,color .15s}
+.imp-drop:hover{border-color:var(--blue);background:var(--bg);color:var(--t1)}
+.imp-drop i{font-size:30px;color:var(--blue)}
+.imp-drop strong{color:var(--t1)}
+.imp-drop-sub{font-size:11px;color:var(--t3)}
+.imp-target{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin:16px 0 4px}
+.imp-target .fld{display:flex;flex-direction:column;gap:5px}
+.imp-target .fld label{font-size:11px;font-weight:600;color:var(--t2)}
+.imp-target select{padding:8px 10px;border:1px solid var(--bd);border-radius:var(--r3);background:var(--card);color:var(--t1);font-family:var(--font);font-size:13px;min-width:150px}
+.imp-chk{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--t2);cursor:pointer;padding-bottom:8px}
+.imp-loading,.imp-err{padding:16px;border-radius:var(--r2);font-size:13px;margin-top:14px;display:flex;align-items:center;gap:9px}
+.imp-loading{background:var(--bg);color:var(--t2)}
+.imp-err{background:rgba(220,38,38,.08);color:var(--red);border:1px solid rgba(220,38,38,.25)}
+.imp-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0 12px}
+.imp-stat{background:var(--bg);border:1px solid var(--bd);border-radius:var(--r2);padding:12px;text-align:center;font-size:11px;color:var(--t3);font-weight:600}
+.imp-stat span{display:block;font-size:19px;font-weight:800;color:var(--t1);margin-bottom:3px;font-family:var(--mono)}
+.imp-stat.tot span{color:var(--blue);font-size:16px}
+.imp-note{font-size:11.5px;color:var(--t3);line-height:1.6;margin-bottom:12px}
+.imp-note i{color:var(--amber);margin-right:5px}
+.imp-tbl-wrap{border:1px solid var(--bd);border-radius:var(--r2);overflow:hidden}
+.imp-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.imp-tbl th{background:var(--bg);color:var(--t2);font-weight:700;text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);font-size:11px}
+.imp-tbl td{padding:7px 10px;border-bottom:1px solid var(--bd);color:var(--t1)}
+.imp-tbl tr:last-child td{border-bottom:none}
+.imp-more{padding:9px 10px;font-size:11px;color:var(--t3);background:var(--bg);text-align:center}
+@media(max-width:560px){.imp-stats{grid-template-columns:repeat(2,1fr)}}
