@@ -187,10 +187,7 @@
             </div>
           </div>
 
-          <!-- 6 Kartu (sama seperti dashboard) -->
-          <div class="kpi-row k3" id="pengKpiRow"></div>
-
-          <!-- Input & aksi data -->
+          <!-- Input & aksi data (dipindah ke atas) -->
           <div class="section" style="padding:20px;margin-bottom:18px">
             <div class="sec-title" style="margin-bottom:12px">Input Usulan Anggaran</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -200,6 +197,10 @@
               <button class="btn-sec" onclick="downloadKertasKerjaXLSX()"><i class="fas fa-file-excel"></i> Download Kertas Kerja (Excel)</button>
             </div>
           </div>
+
+          <!-- 6 Kartu (sama seperti dashboard) -->
+          <div class="kpi-row k3" id="pengKpiRow"></div>
+
 
           <!-- Database nilai usulan (gaya gambar 3) -->
           <div class="section">
@@ -405,7 +406,7 @@
         <div id="ruhPagu" class="ruh-pagu"></div>
       </div>
       <div id="ruhGrid" class="ruh-grid"></div>
-      <div class="ruh-hint"><i class="fas fa-circle-info"></i> Klik baris untuk memilih — tombol aksi menyesuaikan level baris (KRO → RO → Komponen → Sub Komponen → Akun → Detail). Baris database tercipta saat <strong>Rekam Detail</strong>.</div>
+      <div class="ruh-hint"><i class="fas fa-circle-info"></i> Alur: <strong>1. Rekam KRO</strong> → klik baris KRO → <strong>Rekam RO</strong> → klik RO → <strong>Rekam Komponen</strong> → klik Komponen → <strong>Rekam Sub Komponen</strong> → klik Sub Komponen → <strong>Rekam Akun</strong> → klik Akun → <strong>Rekam Detail</strong> (tersimpan ke database).</div>
     </div>
   </div>
 
@@ -419,7 +420,7 @@
       <div id="ruhSubBody" class="ruh-sub-body"></div>
       <div class="modal-foot">
         <button class="btn-sec" onclick="ruhModalClose()">Batal</button>
-        <button class="btn-primary" id="ruhSubOk">Ok</button>
+        <button class="btn-primary" id="ruhSubOk">Oke</button>
       </div>
     </div>
   </div>

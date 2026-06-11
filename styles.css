@@ -573,3 +573,38 @@ input,select{font-family:var(--font);outline:none}
 .ruh-det-row>div{flex:1;min-width:90px}
 .ruh-det-row>.ruh-x{flex:0 0 auto;min-width:0;font-weight:700;color:var(--t2);padding-bottom:9px}
 @media(max-width:700px){.ruh-pagu{width:100%;text-align:right}}
+
+/* ═══ RUH v2 — gaya grid SAKTI (gambar 3) + picker ═══ */
+.ruh-tbl td.i{font-style:italic}
+.ruh-und{text-decoration:underline}
+.ruh-noselect{cursor:default}
+.ruh-noselect:hover td{background:transparent}
+.ruh-tbl .ruh-kode{background:#ececec;color:#222}
+.ruh-t-info .ruh-kode,.ruh-t-detail .ruh-kode{background:transparent}
+.ruh-t-program td{background:#fff9d9!important;font-weight:700}
+.ruh-t-program .ruh-ur,.ruh-t-program .ruh-kode{text-decoration:underline}
+.ruh-t-kegiatan td{background:#fff}
+.ruh-t-kegiatan .ruh-ur,.ruh-t-kegiatan .ruh-kode{text-decoration:underline}
+.ruh-t-kro td{background:#fff;font-weight:400}
+.ruh-t-kro .ruh-ur,.ruh-t-kro .ruh-kode{font-style:italic}
+.ruh-t-ro .ruh-ur,.ruh-t-ro .ruh-kode{font-style:italic}
+.ruh-t-komponen .ruh-ur{font-weight:700}
+.ruh-t-subkomp .ruh-ur,.ruh-t-subkomp .ruh-kode{font-style:italic}
+.ruh-t-akun .ruh-ur{color:#111;text-decoration:underline;font-weight:400}
+.ruh-t-akun .ruh-kode{text-decoration:underline}
+.ruh-t-info .ruh-ur{color:#333}
+.ruh-t-detail .ruh-ur{color:#222}
+.ruh-r.ruh-sel td{background:#1f6fd6!important;color:#fff!important}
+.ruh-r.ruh-sel .ruh-kode{background:#ececec!important;color:#222!important}
+.ruh-pick-bar{display:flex;gap:8px;margin-bottom:10px}
+.ruh-pick-bar input{flex:1}
+.ruh-pick tbody tr{cursor:pointer}
+.ruh-pick tbody tr:hover td{background:#f2f6fc}
+.ruh-pick tr.ruh-pk-sel td{background:#d8e8fb;font-weight:600}
+.ruh-pick-foot{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:10px}
+.ruh-pager{display:flex;gap:3px}
+.ruh-pg{border:1px solid var(--bd);background:var(--card);color:#1f6fd6;min-width:32px;height:30px;border-radius:5px;cursor:pointer;font-weight:600}
+.ruh-pg.act{background:#1f6fd6;color:#fff;border-color:#1f6fd6}
+.ruh-pg:disabled{opacity:.4;cursor:default}
+.ruh-frm .ruh-row{display:flex;gap:8px;align-items:center}
+.ruh-side{font-size:12.5px;color:var(--t1)}
