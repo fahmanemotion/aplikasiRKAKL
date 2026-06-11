@@ -608,3 +608,16 @@ input,select{font-family:var(--font);outline:none}
 .ruh-pg:disabled{opacity:.4;cursor:default}
 .ruh-frm .ruh-row{display:flex;gap:8px;align-items:center}
 .ruh-side{font-size:12.5px;color:var(--t1)}
+
+/* ═══ RUH v3 — penyesuaian gambar ═══ */
+.ruh-modal{width:min(1340px,97vw)}
+.ruh-ok-green{background:#3ea34a;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-weight:600;cursor:pointer}
+.ruh-ok-green:hover{background:#349040}
+.ruh-dots{background:#1f6fd6;color:#fff;border:none;border-radius:5px;min-width:38px;height:34px;font-weight:700;cursor:pointer}
+.ruh-dots:hover{background:#185db5}
+.ruh-ro{background:#eef1f5;color:#333}
+.ruh-fld{margin-bottom:6px}
+.ruh-frm .ruh-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ruh-side{font-size:12.5px;color:var(--t1)}
+/* Saat KRO belum direkam, baris kegiatan tetap jadi titik mulai */
+.ruh-empty{color:var(--t3)}
