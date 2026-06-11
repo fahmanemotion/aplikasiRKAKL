@@ -526,3 +526,50 @@ input,select{font-family:var(--font);outline:none}
 .imp-tbl tr:last-child td{border-bottom:none}
 .imp-more{padding:9px 10px;font-size:11px;color:var(--t3);background:var(--bg);text-align:center}
 @media(max-width:560px){.imp-stats{grid-template-columns:repeat(2,1fr)}}
+
+/* ═══ RUH ala SAKTI ═══ */
+.ruh-modal{width:min(1180px,96vw);max-height:92vh;display:flex;flex-direction:column}
+.ruh-head-ctl{display:flex;gap:8px;align-items:center}
+.ruh-warn{background:#fff8d6;border:1px solid #e6d27a;color:#6b5a00;border-radius:8px;padding:8px 12px;margin:10px 0;font-size:12.5px;text-align:center}
+.ruh-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.ruh-toolbar{display:flex;gap:6px;flex-wrap:wrap}
+.ruh-btn{background:#1f6fd6;color:#fff;border:none;border-radius:4px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ruh-btn:hover{background:#185db5}
+.ruh-pagu{font-size:14px;color:#8a6d00;font-weight:600}
+.ruh-pagu strong{font-size:15px}
+.ruh-grid{flex:1;overflow:auto;border:1px solid var(--bd);border-radius:6px;min-height:240px;max-height:56vh}
+.ruh-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.ruh-tbl th{position:sticky;top:0;background:#2f6fb5;color:#fff;padding:7px 8px;font-size:11px;text-align:center;z-index:1}
+.ruh-tbl td{padding:5px 8px;border-bottom:1px solid #e3e9f2;color:var(--t1)}
+.ruh-tbl td.r{text-align:right;font-variant-numeric:tabular-nums}
+.ruh-tbl td.c{text-align:center}
+.ruh-tbl td.b{font-weight:600}
+.ruh-kode{font-family:ui-monospace,Consolas,monospace;text-align:center;white-space:nowrap}
+.ruh-r{cursor:pointer}
+.ruh-r:hover td{background:#eef4fc}
+.ruh-r.ruh-sel td{background:#1f6fd6!important;color:#fff!important}
+.ruh-l0 td{background:#fff7d6;font-weight:700}
+.ruh-l0 .ruh-ur,.ruh-l1 .ruh-ur{text-decoration:underline}
+.ruh-l1 td{background:#fffbe9;font-weight:600}
+.ruh-l2 td{font-weight:600;background:#f4f7fb}
+.ruh-l3 .ruh-ur{font-style:italic;color:#1d4f91}
+.ruh-l5 .ruh-ur{font-style:italic}
+.ruh-l6 .ruh-ur{color:#1f6fd6;text-decoration:underline;font-weight:600}
+.ruh-l7 .ruh-ur{color:var(--t2)}
+.ruh-tag{background:#e7f0ff;color:#1f6fd6;border:1px solid #bcd5f5;border-radius:8px;font-size:10px;padding:1px 7px;font-style:normal;font-weight:600}
+.ruh-empty{text-align:center;color:var(--t3);padding:26px!important;font-size:12.5px}
+.ruh-hint{margin-top:8px;font-size:11.5px;color:var(--t3)}
+.ruh-sub{width:min(680px,94vw)}
+.ruh-sub-body{padding:4px 0 10px}
+.ruh-sub-scroll{max-height:46vh;overflow:auto;border:1px solid var(--bd);border-radius:6px}
+.ruh-pick{width:100%;border-collapse:collapse;font-size:12px}
+.ruh-pick th{position:sticky;top:0;background:var(--bg);padding:7px 9px;text-align:left;font-size:11px;color:var(--t2);border-bottom:1px solid var(--bd)}
+.ruh-pick td{padding:6px 9px;border-bottom:1px solid #eef1f6}
+.ruh-lbl{display:block;font-size:11px;color:var(--t2);font-weight:600;margin:9px 0 3px}
+.ruh-in{width:100%;border:1px solid var(--bd);border-radius:6px;padding:7px 9px;font-size:12.5px;background:var(--card);color:var(--t1)}
+.ruh-in-lg{font-size:13.5px;padding:9px 11px}
+.ruh-in-sm{width:auto;padding:5px 8px;font-size:12px}
+.ruh-det-row{display:flex;gap:10px;align-items:flex-end;margin-top:4px;flex-wrap:wrap}
+.ruh-det-row>div{flex:1;min-width:90px}
+.ruh-det-row>.ruh-x{flex:0 0 auto;min-width:0;font-weight:700;color:var(--t2);padding-bottom:9px}
+@media(max-width:700px){.ruh-pagu{width:100%;text-align:right}}

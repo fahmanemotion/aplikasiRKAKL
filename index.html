@@ -194,7 +194,8 @@
           <div class="section" style="padding:20px;margin-bottom:18px">
             <div class="sec-title" style="margin-bottom:12px">Input Usulan Anggaran</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn-primary" onclick="openInput()"><i class="fas fa-pen-to-square"></i> Input</button>
+              <button class="btn-primary" onclick="openRuh()"><i class="fas fa-table-list"></i> Input (RUH SAKTI)</button>
+              <button class="btn-sec" onclick="openInput()"><i class="fas fa-pen-to-square"></i> Form Klasik</button>
               <button class="btn-sec" onclick="openImport()"><i class="fas fa-file-arrow-up"></i> Upload Data Keuangan</button>
               <button class="btn-sec" onclick="downloadKertasKerjaXLSX()"><i class="fas fa-file-excel"></i> Download Kertas Kerja (Excel)</button>
             </div>
@@ -383,6 +384,42 @@
       <div class="modal-ftr">
         <button class="btn-sec" onclick="closeInput()">Batal</button>
         <button class="btn-primary" id="inSaveBtn" onclick="submitInput()"><i class="fas fa-floppy-disk"></i> Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ MODAL INPUT RUH (ALA SAKTI) ═══════════════ -->
+  <div class="modal-bg" id="ruhModal">
+    <div class="modal ruh-modal">
+      <div class="modal-head">
+        <div class="modal-title"><i class="fas fa-table-list" style="color:var(--blue);margin-right:8px"></i>RUH Belanja — Mode SAKTI</div>
+        <div class="ruh-head-ctl">
+          <select id="ruhTa" class="ruh-in ruh-in-sm" onchange="renderRuh()"></select>
+          <select id="ruhTahap" class="ruh-in ruh-in-sm" onchange="renderRuh()"></select>
+          <button class="modal-x" onclick="closeRuh()"><i class="fas fa-xmark"></i></button>
+        </div>
+      </div>
+      <div class="ruh-warn"><i class="fas fa-circle-exclamation"></i> Harap <strong>simpan data</strong> secara berkala untuk menghindari perubahan data hilang saat form tertutup.</div>
+      <div class="ruh-bar">
+        <div id="ruhToolbar" class="ruh-toolbar"></div>
+        <div id="ruhPagu" class="ruh-pagu"></div>
+      </div>
+      <div id="ruhGrid" class="ruh-grid"></div>
+      <div class="ruh-hint"><i class="fas fa-circle-info"></i> Klik baris untuk memilih — tombol aksi menyesuaikan level baris (KRO → RO → Komponen → Sub Komponen → Akun → Detail). Baris database tercipta saat <strong>Rekam Detail</strong>.</div>
+    </div>
+  </div>
+
+  <!-- Modal kecil RUH (Pilih KRO / Rekam struktur / Rekam Detail) -->
+  <div class="modal-bg" id="ruhSubModal">
+    <div class="modal ruh-sub">
+      <div class="modal-head">
+        <div class="modal-title" id="ruhSubTitle"></div>
+        <button class="modal-x" onclick="ruhModalClose()"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div id="ruhSubBody" class="ruh-sub-body"></div>
+      <div class="modal-foot">
+        <button class="btn-sec" onclick="ruhModalClose()">Batal</button>
+        <button class="btn-primary" id="ruhSubOk">Ok</button>
       </div>
     </div>
   </div>

@@ -40,6 +40,7 @@ var APP = {
   kodeEditId: null,
   records: [],
   importData: null,
+  ruh: { selKey: null, selType: null, kroSel: null, draft: [], _rows: [] },
 };
 
 /* ── Util ── */
@@ -1073,6 +1074,285 @@ async function confirmImport() {
   }
 }
 
+/* ── Input RUH ala SAKTI (Belanja Redesain) ───────────────────────────
+   Grid POK hierarkis + tombol aksi kontekstual + Form Rekam Akun Detail.
+   Struktur (KRO/RO/Komponen/Subkomp/Akun) direkam sebagai "draft" lokal;
+   baris DB tercipta saat Rekam Detail (Vol × Harga = Jumlah).            */
+var RUH_DRAFT_KEY = 'sipra_ruh_draft_v1';
+function ruhLoadDraft() { try { var s = localStorage.getItem(RUH_DRAFT_KEY); APP.ruh.draft = s ? JSON.parse(s) : []; } catch (e) { APP.ruh.draft = []; } }
+function ruhSaveDraft() { try { localStorage.setItem(RUH_DRAFT_KEY, JSON.stringify(APP.ruh.draft)); } catch (e) { } }
+function fmtN(n) { return Math.round(+n || 0).toLocaleString('id-ID'); }
+
+/* Bangun baris grid (flat, berurutan) dari records + draft. */
+function ruhBuildRows(ta, tahap) {
+  var ORDER = ['program', 'kegiatan', 'kro', 'ro', 'komponen', 'subkomp', 'akun'];
+  var DEPTH = { program: 0, kegiatan: 1, kro: 2, ro: 3, komponen: 4, subkomp: 5, akun: 6 };
+  var root = { order: [], map: {} };
+  function ensure(parent, key, make) { if (!parent.map[key]) { parent.map[key] = make(); parent.map[key].order = []; parent.map[key].map = {}; parent.order.push(key); } return parent.map[key]; }
+  function pathKeys(p) {
+    return {
+      program: 'P:' + p.prog, kegiatan: 'K:' + p.prog + '.' + p.keg,
+      kro: 'R:' + p.prog + '.' + p.keg + '.' + p.kro, ro: 'O:' + p.prog + '.' + p.keg + '.' + p.kro + '.' + p.ro,
+      komponen: 'C:' + p.prog + '.' + p.keg + '.' + p.kro + '.' + p.ro + '.' + p.komp,
+      subkomp: 'S:' + p.prog + '.' + p.keg + '.' + p.kro + '.' + p.ro + '.' + p.komp + '.' + (p.subkomp || '-'),
+      akun: 'A:' + p.prog + '.' + p.keg + '.' + p.kro + '.' + p.ro + '.' + p.komp + '.' + (p.subkomp || '-') + '.' + p.akun,
+    };
+  }
+  function nameOf(level, p, fallback) {
+    var pp = { program: '', kegiatan: p.prog, kro: p.prog + '.' + p.keg, ro: p.prog + '.' + p.keg + '.' + p.kro, komponen: p.prog + '.' + p.keg + '.' + p.kro + '.' + p.ro, akun: p.sd || '' }[level];
+    var kode = { program: p.prog, kegiatan: p.keg, kro: p.kro, ro: p.ro, komponen: p.komp, subkomp: p.subkomp, akun: p.akun }[level];
+    return refUraian(level, kode, pp) || fallback || '';
+  }
+  function build(p, uptoLevel, src) {           // src: rec | draft
+    var parent = root, keys = pathKeys(p);
+    for (var i = 0; i <= DEPTH[uptoLevel]; i++) {
+      var lv = ORDER[i], key = keys[lv];
+      var kode = { program: '022.' + p.prog, kegiatan: p.keg, kro: p.keg + '.' + p.kro, ro: p.keg + '.' + p.kro + '.' + p.ro, komponen: p.komp, subkomp: p.subkomp || '-', akun: p.akun }[lv];
+      var node = ensure(parent, key, function () {
+        return { key: key, type: lv, depth: DEPTH[lv], kode: kode, uraian: '', jumlah: 0, path: { prog: p.prog, keg: p.keg, kro: p.kro, ro: p.ro, komp: p.komp, subkomp: p.subkomp, akun: p.akun }, details: [], sd: '', kategori: '', skeleton: true };
+      });
+      if (!node.uraian) node.uraian = nameOf(lv, p, src && (lv === 'subkomp' ? (src.subkomp_nama || src.uraian) : (lv === 'akun' ? (src.detail_akun || src.uraian) : src['' + lv + '_nama'])));
+      if (lv === 'akun' && src) { if (src.sd) node.sd = src.sd; if (src.kategori) node.kategori = src.kategori; }
+      parent = node;
+    }
+    return parent;
+  }
+  recordsView(ta, tahap).forEach(function (r) {
+    var akunNode = build(r, 'akun', r);
+    akunNode.skeleton = false; akunNode.details.push(r);
+  });
+  (APP.ruh.draft || []).forEach(function (d) {
+    if (String(d.ta) !== String(ta) || d.tahap !== tahap) return;
+    build(d, d.level, d);
+  });
+  /* Filter tampilan per-KRO (ceklis "Pilih KRO") */
+  var sel = APP.ruh.kroSel;
+  function kroVisible(p) { return !sel || !sel.length || sel.indexOf(p.keg + '.' + p.kro) >= 0; }
+  /* Jalan rekursif → flat + agregasi jumlah */
+  var flat = [];
+  function walk(node) {
+    var sum = 0, idx = flat.length;
+    flat.push(node);
+    node.order.forEach(function (k) { sum += walk(node.map[k]); });
+    if (node.type === 'akun') node.details.forEach(function (r, i) {
+      var j = amountOf(r); sum += j;
+      flat.push({ key: 'D:' + (r.id != null ? r.id : node.key + '#' + i), type: 'detail', depth: 7, kode: '', uraian: r.detail_belanja, vol: r.vol, sat: r.sat, hrg: r.hrg_sat, jumlah: j, rec: r, path: node.path, sd: r.sd });
+    });
+    node.jumlah = sum;
+    if (node.type === 'kro' && !kroVisible(node.path)) flat.length = idx; // buang cabang tak terpilih
+    return (node.type === 'kro' && !kroVisible(node.path)) ? 0 : sum;
+  }
+  var total = 0;
+  root.order.forEach(function (k) { total += walk(root.map[k]); });
+  /* Buang program/kegiatan kosong hasil filter */
+  flat = flat.filter(function (n, i) {
+    if (n.type !== 'program' && n.type !== 'kegiatan') return true;
+    var nx = flat[i + 1]; return nx && nx.depth > n.depth;
+  });
+  return { rows: flat, total: total };
+}
+
+function openRuh() {
+  ruhLoadDraft();
+  APP.ruh.selKey = null; APP.ruh.selType = null;
+  var ty = document.getElementById('ruhTa'); if (ty) ty.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '"' + (y === APP.year ? ' selected' : '') + '>TA ' + y + '</option>'; }).join('');
+  var tp = document.getElementById('ruhTahap'); if (tp) tp.innerHTML = STAGES.map(function (s) { return '<option value="' + s.key + '"' + (s.key === APP.stage ? ' selected' : '') + '>' + s.label + '</option>'; }).join('');
+  var m = document.getElementById('ruhModal'); if (m) m.classList.add('open');
+  renderRuh();
+}
+function closeRuh() { var m = document.getElementById('ruhModal'); if (m) m.classList.remove('open'); renderAll(); }
+function ruhCtx() { return { ta: gv('ruhTa') || APP.year, tahap: gv('ruhTahap') || APP.stage }; }
+function ruhFind(key) { for (var i = 0; i < APP.ruh._rows.length; i++) if (APP.ruh._rows[i].key === key) return APP.ruh._rows[i]; return null; }
+function ruhSelect(key, type) {
+  if (APP.ruh.selKey === key) { APP.ruh.selKey = null; APP.ruh.selType = null; }
+  else { APP.ruh.selKey = key; APP.ruh.selType = type; }
+  renderRuh();
+}
+
+function renderRuh() {
+  var c = ruhCtx(), built = ruhBuildRows(c.ta, c.tahap);
+  APP.ruh._rows = built.rows;
+  var pg = document.getElementById('ruhPagu'); if (pg) pg.innerHTML = 'Pagu : <strong>' + fmtN(built.total) + '</strong>';
+  /* Toolbar kontekstual ala SAKTI */
+  var acts = [{ label: 'Pilih KRO', icon: 'list-check', fn: 'ruhPilihKro()' }];
+  var t = APP.ruh.selType;
+  if (t === 'kro') acts.push({ label: 'Rekam RO', icon: 'plus', fn: "ruhRekam('ro')" });
+  if (t === 'ro') acts.push({ label: 'Rekam Komponen', icon: 'plus', fn: "ruhRekam('komponen')" });
+  if (t === 'komponen') acts.push({ label: 'Rekam Sub Komponen', icon: 'plus', fn: "ruhRekam('subkomp')" });
+  if (t === 'subkomp') acts.push({ label: 'Rekam Akun', icon: 'plus', fn: "ruhRekam('akun')" });
+  if (t === 'akun') acts.push({ label: 'Rekam Detail', icon: 'pen-to-square', fn: 'ruhRekamDetail()' });
+  if (t === 'detail') { acts.push({ label: 'Ubah Detail', icon: 'pen', fn: 'ruhRekamDetail(true)' }); acts.push({ label: 'Hapus Detail', icon: 'trash', fn: 'ruhHapusDetail()' }); }
+  var tb = document.getElementById('ruhToolbar');
+  if (tb) tb.innerHTML = acts.map(function (a, i) { return '<button class="ruh-btn" onclick="' + a.fn + '"><i class="fas fa-' + a.icon + '"></i> ' + (i + 1) + '. ' + a.label + '</button>'; }).join('');
+  /* Grid */
+  var html = built.rows.map(function (n) {
+    var selected = n.key === APP.ruh.selKey ? ' ruh-sel' : '';
+    var num = n.type === 'detail' ? ('<td class="r">' + (n.vol || '') + '</td><td>' + esc(n.sat || '') + '</td><td class="r">' + fmtN(n.hrg) + '</td>') : '<td></td><td></td><td></td>';
+    var sd = (n.type === 'akun' || n.type === 'detail') && n.sd ? String(n.sd).toUpperCase() : '';
+    return '<tr class="ruh-r ruh-l' + n.depth + selected + '" onclick="ruhSelect(\'' + n.key.replace(/'/g, "\\'") + '\',\'' + n.type + '\')">' +
+      '<td class="ruh-kode">' + esc(n.kode || '') + '</td>' +
+      '<td class="ruh-ur" style="padding-left:' + (10 + n.depth * 16) + 'px">' + esc(n.uraian || (n.type === 'subkomp' ? '(tanpa uraian)' : '')) + (n.skeleton && n.type === 'akun' ? ' <span class="ruh-tag">baru</span>' : '') + '</td>' +
+      num + '<td class="r b">' + (n.jumlah ? fmtN(n.jumlah) : '') + '</td><td class="c">' + sd + '</td></tr>';
+  }).join('');
+  var g = document.getElementById('ruhGrid');
+  if (g) g.innerHTML = '<table class="ruh-tbl"><thead><tr><th style="width:110px">KODE</th><th>URAIAN</th><th style="width:60px">VOL</th><th style="width:64px">SAT</th><th style="width:110px">HARGA</th><th style="width:130px">JUMLAH</th><th style="width:52px">SD</th></tr></thead><tbody>' +
+    (html || '<tr><td colspan="7" class="ruh-empty">Belum ada data pada TA/tahap ini. Mulai dengan <strong>1. Pilih KRO</strong>.</td></tr>') + '</tbody></table>';
+}
+
+/* Modal kecil generik */
+function ruhModalShow(title, bodyHtml, okFn) {
+  var t = document.getElementById('ruhSubTitle'), b = document.getElementById('ruhSubBody'), ok = document.getElementById('ruhSubOk');
+  if (t) t.textContent = title; if (b) b.innerHTML = bodyHtml; if (ok) ok.onclick = okFn;
+  var m = document.getElementById('ruhSubModal'); if (m) m.classList.add('open');
+}
+function ruhModalClose() { var m = document.getElementById('ruhSubModal'); if (m) m.classList.remove('open'); }
+
+/* 1) Pilih KRO — ceklis KRO yang ditampilkan (ala "Pilih KRO yang akan ditampilkan") */
+function ruhPilihKro() {
+  var list = [];
+  (APP.refData.kro || []).forEach(function (k) {
+    var keg = (k.induk || '').split('.').slice(-1)[0];
+    list.push({ code: keg + '.' + k.kode, uraian: k.uraian });
+  });
+  if (!list.length) { toast('info', 'Referensi Kosong', 'Daftar KRO belum dimuat dari referensi kode.'); return; }
+  var sel = APP.ruh.kroSel;
+  var rows = list.map(function (it, i) {
+    var ck = (!sel || sel.indexOf(it.code) >= 0) ? ' checked' : '';
+    return '<tr><td class="mono">' + esc(it.code) + '</td><td>' + esc(it.uraian) + '</td><td class="c"><input type="checkbox" class="ruhKroCk" value="' + esc(it.code) + '"' + ck + '></td></tr>';
+  }).join('');
+  ruhModalShow('Pilih KRO yang akan ditampilkan',
+    '<div class="ruh-sub-scroll"><table class="ruh-pick"><thead><tr><th>Kode</th><th>Deskripsi</th><th style="width:50px">Pilih</th></tr></thead><tbody>' + rows + '</tbody></table></div>',
+    function () {
+      var cks = document.querySelectorAll('.ruhKroCk'), chosen = [];
+      for (var i = 0; i < cks.length; i++) if (cks[i].checked) chosen.push(cks[i].value);
+      APP.ruh.kroSel = (chosen.length === cks.length) ? null : chosen;   // semua = tanpa filter
+      ruhModalClose(); APP.ruh.selKey = null; APP.ruh.selType = null; renderRuh();
+    });
+}
+
+/* 2) Rekam struktur: RO / Komponen / Sub Komponen / Akun → draft lokal */
+function ruhRekam(level) {
+  if (!requireLogin('merekam ' + level)) return;
+  var node = ruhFind(APP.ruh.selKey); if (!node) return;
+  var p = node.path, c = ruhCtx();
+  function commit(extra) {
+    var d = { ta: String(c.ta), tahap: c.tahap, level: level, prog: p.prog, keg: p.keg, kro: p.kro, ro: p.ro, komp: p.komp, subkomp: p.subkomp };
+    for (var k in extra) d[k] = extra[k];
+    APP.ruh.draft.push(d); ruhSaveDraft(); ruhModalClose(); renderRuh();
+    toast('success', 'Terekam (draft)', 'Struktur ' + level + ' ditambahkan. Lanjutkan sampai Rekam Detail untuk menyimpan ke database.');
+  }
+  if (level === 'subkomp') {
+    ruhModalShow('Rekam Sub Komponen',
+      '<label class="ruh-lbl">Kode (huruf, mis. A)</label><input id="ruhSkKode" class="ruh-in" maxlength="3" placeholder="A">' +
+      '<label class="ruh-lbl">Uraian</label><input id="ruhSkUr" class="ruh-in" placeholder="Uraian sub komponen">',
+      function () {
+        var kode = (gv('ruhSkKode') || '').trim().toUpperCase(), ur = (gv('ruhSkUr') || '').trim();
+        if (!kode) { toast('error', 'Lengkapi Data', 'Kode sub komponen wajib diisi.'); return; }
+        commit({ subkomp: kode, uraian: ur, subkomp_nama: ur });
+      });
+    return;
+  }
+  if (level === 'akun') {
+    var sdSel = '<label class="ruh-lbl">Sumber Dana</label><select id="ruhAkSd" class="ruh-in" onchange="ruhAkFill()"><option value="rm">RM</option><option value="blu">BLU</option><option value="sbsn">SBSN</option></select>';
+    ruhModalShow('Rekam Akun', sdSel +
+      '<label class="ruh-lbl">Akun</label><select id="ruhAkKode" class="ruh-in"></select>' +
+      '<label class="ruh-lbl">Kategori</label><select id="ruhAkKat" class="ruh-in"><option value="ops">Operasional</option><option value="nonops">Non Operasional</option></select>',
+      function () {
+        var kode = gv('ruhAkKode'); if (!kode) { toast('error', 'Lengkapi Data', 'Pilih akun.'); return; }
+        commit({ akun: kode, sd: gv('ruhAkSd') || 'rm', kategori: gv('ruhAkKat') || 'ops', detail_akun: uraianOf('akun', kode) });
+      });
+    ruhAkFill();
+    return;
+  }
+  /* ro / komponen: pilih dari referensi (anak dari path induk) */
+  var parentPath = level === 'ro' ? (p.prog + '.' + p.keg + '.' + p.kro) : (p.prog + '.' + p.keg + '.' + p.kro + '.' + p.ro);
+  var opts = childrenOf(level, parentPath);
+  var labelLv = level === 'ro' ? 'RO' : 'Komponen';
+  var body = opts.length
+    ? '<label class="ruh-lbl">' + labelLv + ' (dari referensi)</label><select id="ruhLvKode" class="ruh-in">' + opts.map(function (o) { return '<option value="' + esc(o.kode) + '">' + esc(o.kode) + ' — ' + esc(o.uraian) + '</option>'; }).join('') + '</select>'
+    : '<label class="ruh-lbl">Kode ' + labelLv + ' (referensi kosong — isi manual)</label><input id="ruhLvKode" class="ruh-in" placeholder="' + (level === 'ro' ? '002' : '051') + '">' +
+      '<label class="ruh-lbl">Uraian</label><input id="ruhLvUr" class="ruh-in">';
+  ruhModalShow('Rekam ' + labelLv, body, function () {
+    var kode = (gv('ruhLvKode') || '').trim(); if (!kode) { toast('error', 'Lengkapi Data', 'Kode wajib diisi.'); return; }
+    var extra = {}; extra[level === 'ro' ? 'ro' : 'komp'] = kode;
+    var ur = gv('ruhLvUr'); if (ur) extra.uraian = ur;
+    commit(extra);
+  });
+}
+function ruhAkFill() {
+  var sd = gv('ruhAkSd') || 'rm', el = document.getElementById('ruhAkKode'); if (!el) return;
+  el.innerHTML = childrenOf('akun', sd).map(function (o) { return '<option value="' + esc(o.kode) + '">' + esc(o.kode) + ' — ' + esc(o.uraian) + '</option>'; }).join('') || '<option value="">(referensi akun kosong)</option>';
+}
+
+/* 3) Form Rekam Akun Detail — Uraian, Vol × Sat × Harga = Jumlah */
+function ruhRekamDetail(isEdit) {
+  if (!requireLogin('merekam detail')) return;
+  var node = ruhFind(APP.ruh.selKey); if (!node) return;
+  var rec = isEdit ? node.rec : null;
+  var akunNode = isEdit ? ruhFind('A:' + node.path.prog + '.' + node.path.keg + '.' + node.path.kro + '.' + node.path.ro + '.' + node.path.komp + '.' + (node.path.subkomp || '-') + '.' + node.path.akun) : node;
+  var sd0 = rec ? rec.sd : (akunNode && akunNode.sd) || 'rm';
+  var kat0 = rec ? rec.kategori : (akunNode && akunNode.kategori) || 'ops';
+  ruhModalShow('Form Rekam Akun Detail',
+    '<input id="ruhDetUr" class="ruh-in ruh-in-lg" placeholder="Uraian" value="' + esc(rec ? rec.detail_belanja : '') + '">' +
+    '<div class="ruh-det-row">' +
+    '<div><label class="ruh-lbl">Volkeg</label><input id="ruhDetVol" type="number" min="0" class="ruh-in" value="' + (rec ? rec.vol : '') + '" oninput="ruhDetCalc()"></div>' +
+    '<div><label class="ruh-lbl">Satkeg</label><input id="ruhDetSat" class="ruh-in" value="' + esc(rec ? rec.sat : '') + '"></div>' +
+    '<div class="ruh-x">×</div>' +
+    '<div><label class="ruh-lbl">Harga Satuan</label><input id="ruhDetHrg" type="number" min="0" class="ruh-in" value="' + (rec ? rec.hrg_sat : '') + '" oninput="ruhDetCalc()"></div>' +
+    '<div class="ruh-x">=</div>' +
+    '<div><label class="ruh-lbl">Jumlah</label><input id="ruhDetJml" class="ruh-in" readonly></div>' +
+    '</div>' +
+    '<div class="ruh-det-row">' +
+    '<div><label class="ruh-lbl">Sumber Dana</label><select id="ruhDetSd" class="ruh-in"><option value="rm"' + (sd0 === 'rm' ? ' selected' : '') + '>RM</option><option value="blu"' + (sd0 === 'blu' ? ' selected' : '') + '>BLU</option><option value="sbsn"' + (sd0 === 'sbsn' ? ' selected' : '') + '>SBSN</option></select></div>' +
+    '<div><label class="ruh-lbl">Kategori</label><select id="ruhDetKat" class="ruh-in"><option value="ops"' + (kat0 === 'ops' ? ' selected' : '') + '>Operasional</option><option value="nonops"' + (kat0 === 'nonops' ? ' selected' : '') + '>Non Operasional</option></select></div>' +
+    '</div>',
+    function () { ruhSaveDetail(rec, node); });
+  ruhDetCalc();
+}
+function ruhDetCalc() {
+  var v = parseFloat(gv('ruhDetVol')) || 0, h = parseFloat(gv('ruhDetHrg')) || 0;
+  var j = document.getElementById('ruhDetJml'); if (j) j.value = fmtN(v * h);
+}
+async function ruhSaveDetail(orig, node) {
+  var c = ruhCtx(), p = node.path;
+  var rec = {
+    ta: String(c.ta), tahap: c.tahap, ba: '022',
+    prog: p.prog, keg: p.keg, kro: p.kro, ro: p.ro, komp: p.komp, subkomp: p.subkomp || '',
+    subkomp_nama: (orig && orig.subkomp_nama) || (ruhFind('S:' + p.prog + '.' + p.keg + '.' + p.kro + '.' + p.ro + '.' + p.komp + '.' + (p.subkomp || '-')) || {}).uraian || '',
+    akun: p.akun, detail_akun: uraianOf('akun', p.akun) || (orig && orig.detail_akun) || '',
+    detail_belanja: (gv('ruhDetUr') || '').trim(),
+    vol: parseFloat(gv('ruhDetVol')) || 0, sat: (gv('ruhDetSat') || '').trim(), hrg_sat: parseFloat(gv('ruhDetHrg')) || 0,
+    sd: gv('ruhDetSd') || 'rm', kategori: gv('ruhDetKat') || 'ops',
+    prog_nama: uraianOf('program', p.prog), keg_nama: uraianOf('kegiatan', p.keg),
+    kro_nama: uraianOf('kro', p.kro), ro_nama: uraianOf('ro', p.ro),
+  };
+  if (!rec.detail_belanja) { toast('error', 'Lengkapi Data', 'Uraian detail wajib diisi.'); return; }
+  if (rec.vol <= 0 || rec.hrg_sat <= 0) { toast('error', 'Lengkapi Data', 'Volkeg dan Harga Satuan harus lebih dari 0.'); return; }
+  try {
+    if (orig && orig.id != null) {
+      await supaWrite('PATCH', TABLE, { query: 'id=eq.' + encodeURIComponent(orig.id), body: toDbRow(rec) });
+    } else {
+      await supaWrite('POST', TABLE, { query: UPSERT_KEY, body: [toDbRow(rec)], upsert: true });
+    }
+    ruhModalClose();
+    toast('success', orig ? 'Detail Diperbarui' : 'Detail Tersimpan', '"' + rec.detail_belanja + '" = ' + fmtRp(rec.vol * rec.hrg_sat) + '.');
+    await loadFromSupabase();
+    APP.ruh.selKey = null; APP.ruh.selType = null; renderRuh();
+  } catch (e) { toast('error', 'Gagal Menyimpan', e.message); console.error('[SIPRA] ruh detail', e); }
+}
+async function ruhHapusDetail() {
+  if (!requireLogin('menghapus detail')) return;
+  var node = ruhFind(APP.ruh.selKey); if (!node || !node.rec) return;
+  var rec = node.rec;
+  if (!confirm('Hapus detail "' + rec.detail_belanja + '" (' + fmtRp(amountOf(rec)) + ')?')) return;
+  try {
+    await supaWrite('DELETE', TABLE, { query: 'id=eq.' + encodeURIComponent(rec.id) });
+    toast('success', 'Terhapus', 'Detail "' + rec.detail_belanja + '" dihapus.');
+    await loadFromSupabase();
+    APP.ruh.selKey = null; APP.ruh.selType = null; renderRuh();
+  } catch (e) { toast('error', 'Gagal Menghapus', e.message); }
+}
+
 /* ── Form Input Usulan (modal) ─────────────────────────────────────── */
 function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
 function setVal(id, v) { var el = document.getElementById(id); if (el) el.value = (v == null ? '' : v); }
@@ -1496,6 +1776,7 @@ if (typeof module !== 'undefined' && module.exports) {
     REF_TABLES: REF_TABLES, refDef: refDef,
     CASCADE: CASCADE, childrenOf: childrenOf, uraianOf: uraianOf, pathOf: pathOf,
     kkColOf: kkColOf, refUraian: refUraian, downloadKertasKerja: downloadKertasKerja, downloadKertasKerjaXLSX: downloadKertasKerjaXLSX,
+    ruhBuildRows: ruhBuildRows, ruhLoadDraft: ruhLoadDraft, ruhSaveDraft: ruhSaveDraft, fmtN: fmtN,
     kkNum: kkNum, kkDetectCols: kkDetectCols, kkIsDetail: kkIsDetail, kkCleanName: kkCleanName,
     kkMeta: kkMeta, kkParseMatrix: kkParseMatrix,
     kkUpsertKeyOf: kkUpsertKeyOf, kkDedupeForUpsert: kkDedupeForUpsert,
