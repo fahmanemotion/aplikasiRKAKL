@@ -20,6 +20,7 @@ var TABLE = 'usulan_belanja';
 var UPSERT_KEY = 'on_conflict=ta,tahap,ba,prog,keg,kro,ro,komp,subkomp,akun,detail_belanja';
 var AUTH_URL = SUPA_URL + '/auth/v1';
 var SESSION_KEY = 'sipra_session';
+var CACHE_KEY = 'sipra_cache_v1';   // salinan lokal data terakhir (anti-hilang saat luring)
 
 var APP = {
   theme: 'light',
@@ -78,6 +79,19 @@ function authToken() { return (APP.session && APP.session.access_token) || SUPA_
 function isLoggedIn() { return !!(APP.session && APP.session.access_token); }
 function loadSession() { try { var s = localStorage.getItem(SESSION_KEY); if (s) APP.session = JSON.parse(s); } catch (e) { } }
 function saveSession() { try { if (APP.session) localStorage.setItem(SESSION_KEY, JSON.stringify(APP.session)); else localStorage.removeItem(SESSION_KEY); } catch (e) { } }
+/* Cache lokal: salinan data terakhir agar tetap tampil walau server gagal/luring */
+function saveCache() {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ v: 1, ts: Date.now(), satker: APP.satker, records: APP.records })); }
+  catch (e) { /* storage penuh / mode privat → lewati saja */ }
+}
+function loadCache() {
+  try {
+    var s = localStorage.getItem(CACHE_KEY); if (!s) return null;
+    var c = JSON.parse(s);
+    if (c && Array.isArray(c.records)) { APP.records = c.records; if (c.satker) APP.satker = c.satker; return c; }
+  } catch (e) { }
+  return null;
+}
 async function login(email, password) {
   var res = await fetch(AUTH_URL + '/token?grant_type=password', {
     method: 'POST', headers: { apikey: SUPA_KEY, 'Content-Type': 'application/json' },
@@ -153,7 +167,7 @@ async function submitLogin() {
 async function supaFetch(method, table, opts) {
   opts = opts || {};
   var url = SUPA_REST + '/' + table + (opts.query ? '?' + opts.query : '');
-  var headers = { apikey: SUPA_KEY, Authorization: 'Bearer ' + (opts.useUserToken ? authToken() : SUPA_KEY), 'Content-Type': 'application/json' };
+  var headers = { apikey: SUPA_KEY, Authorization: 'Bearer ' + ((opts.useUserToken || isLoggedIn()) ? authToken() : SUPA_KEY), 'Content-Type': 'application/json' };
   var prefer = [];
   if (opts.returning) prefer.push('return=representation');
   if (opts.upsert) prefer.push('resolution=merge-duplicates');
@@ -193,7 +207,7 @@ function toDbRow(r) {
     vol: r.vol, sat: r.sat, hrg_sat: r.hrg_sat, sd: r.sd, kategori: r.kategori,
   };
 }
-async function loadFromSupabase() {
+async function loadFromSupabase(retry) {
   try {
     var rows = await supaFetchAll(TABLE, 'select=*&order=id');
     APP.records = rows.map(mapRow);
@@ -202,11 +216,24 @@ async function loadFromSupabase() {
       var m = {}; meta.forEach(function (x) { m[x.key] = x.value; });
       if (m.satker) APP.satker = m.satker;
     } catch (e) { /* metadata opsional */ }
+    saveCache();                       // simpan salinan lokal agar aman saat luring
     populateYears(); renderAll();
     toast('success', 'Terhubung ke Supabase', APP.records.length + ' baris dimuat dari ' + TABLE + '.');
   } catch (e) {
-    APP.records = []; renderAll();
-    toast('error', 'Gagal Terhubung ke Supabase', e.message);
+    // Token kedaluwarsa → perbarui sekali lalu coba lagi
+    if (!retry && isLoggedIn() && /(^|\D)40[13](\D|$)|jwt|expired|token/i.test(e.message) && await refreshSession()) {
+      return loadFromSupabase(true);
+    }
+    // Gagal koneksi: JANGAN kosongkan layar — tampilkan data dari cache lokal
+    var hadData = APP.records && APP.records.length;
+    var cached = loadCache();
+    populateYears(); renderAll();
+    if (cached || hadData) {
+      toast('info', 'Mode Luring', 'Gagal menghubungi server — menampilkan ' + APP.records.length + ' baris tersimpan lokal. Data akan tersinkron otomatis saat koneksi pulih.');
+    } else {
+      APP.records = []; renderAll();
+      toast('error', 'Gagal Terhubung ke Supabase', e.message);
+    }
     console.error('[SIPRA] load error:', e);
   }
 }
@@ -1440,19 +1467,21 @@ function populateYears() {
   var sel = document.getElementById('taSelect'); if (!sel) return;
   sel.innerHTML = yearOptions().map(function (y) { return '<option value="' + y + '"' + (y === APP.year ? ' selected' : '') + '>TA ' + y + '</option>'; }).join('');
 }
-function init() {
+async function init() {
   loadSession();
+  loadCache();              // tampilkan data tersimpan lokal lebih dulu (instan, tahan luring)
   populateYears();
   var ps = document.getElementById('paguSelect'); if (ps) ps.value = APP.stage;
   updateAuthUI(); renderUsers(); renderRefTable();
   renderAll();
-  loadFromSupabase();
+  // Perbarui token dulu (bila login) agar baca data pakai sesi valid, baru muat dari server
+  if (isLoggedIn()) { try { await refreshSession(); } catch (e) { } updateAuthUI(); renderUsers(); renderKodeSection(); }
+  await loadFromSupabase();
   loadRefTables();          // referensi kode untuk dropdown bertingkat modal Input
   document.addEventListener('click', function (e) {
     var c = document.getElementById('akunCombo');
     if (c && !c.contains(e.target)) akunClose();
   });
-  if (isLoggedIn()) refreshSession().then(function () { updateAuthUI(); renderUsers(); renderKodeSection(); renderAll(); });
 }
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', init);
 
@@ -1463,7 +1492,7 @@ if (typeof module !== 'undefined' && module.exports) {
     computeCards: computeCards, jenisComposition: jenisComposition, stageTotals: stageTotals,
     recordsForYear: recordsForYear, recordsView: recordsView, kodeOf: kodeOf, groupByKode: groupByKode,
     csvCell: csvCell, mapRow: mapRow, toDbRow: toDbRow, amountOf: amountOf,
-    authToken: authToken, isLoggedIn: isLoggedIn,
+    authToken: authToken, isLoggedIn: isLoggedIn, saveCache: saveCache, loadCache: loadCache, loadFromSupabase: loadFromSupabase,
     REF_TABLES: REF_TABLES, refDef: refDef,
     CASCADE: CASCADE, childrenOf: childrenOf, uraianOf: uraianOf, pathOf: pathOf,
     kkColOf: kkColOf, refUraian: refUraian, downloadKertasKerja: downloadKertasKerja, downloadKertasKerjaXLSX: downloadKertasKerjaXLSX,
