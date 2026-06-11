@@ -603,12 +603,13 @@ function downloadKertasKerja() {
   toast('success', 'Kertas Kerja Diunduh', 'Format Komposisi Anggaran · TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + ' · ' + rows.length + ' detail.');
 }
 
-/* ── Download Kertas Kerja (XLSX dgn RUMUS hidup, SheetJS) ──
-   Output .xlsx asli: Jumlah detail = rumus =Vol*Harga, Jumlah baris struktur
-   (akun→unit) = SUM penjumlahan ke atas, kolom matriks & Sumber Dana juga rumus.
-   Saat dibuka/diedit di Excel, semua angka tetap dihitung otomatis.            */
+/* ── Download Kertas Kerja (XLSX dgn RUMUS hidup + TABEL berformat) ──
+   Output .xlsx asli, tampilan tabel (garis, warna header, shading bertingkat)
+   meniru fitur "Download Kertas Kerja" — TETAPI angkanya rumus hidup:
+   Jumlah detail = =Vol*Harga, Jumlah baris struktur (akun→unit) = SUM ke atas,
+   kolom matriks & Sumber Dana juga rumus. Memakai xlsx-js-style (global XLSX). */
 function downloadKertasKerjaXLSX() {
-  if (typeof XLSX === 'undefined') { toast('error', 'Pustaka Tidak Siap', 'SheetJS (penulis Excel) belum dimuat.'); return; }
+  if (typeof XLSX === 'undefined') { toast('error', 'Pustaka Tidak Siap', 'Pustaka penulis Excel belum dimuat.'); return; }
   var rows = recordsView(APP.year, APP.stage);
   if (!rows.length) { toast('error', 'Tidak Ada Data', 'Belum ada usulan pada TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + '.'); return; }
 
@@ -637,28 +638,26 @@ function downloadKertasKerjaXLSX() {
   var C = { KODE: 0, URAIAN: 1, RV0: 2, VOL: 16, SAT: 17, HRG: 18, JML: 19, RAYA: 29, SDLBL: 30 };
   var MX = { W: 20, X: 21, Y: 22, Z: 23, AA: 24, AB: 25 };           // kolom matriks (Operasional/Non-Op/Modal)
   var SDC = { rm: 26, blu: 27, sbsn: 28 };                            // kolom Sumber Dana
-  var NUM = ['#,##0'];                                                // format ribuan
   var MONEY = '#,##0';
+  var lastCol = 30;
 
-  var ws = {};
+  var ws = {}, rowMeta = {};                                          // rowMeta[r] = { kind, ind }
   function L(c) { return XLSX.utils.encode_col(c); }                  // indeks kolom → huruf
   function A1(c, r0) { return L(c) + (r0 + 1); }                      // alamat A1 (r0 = 0-indeks)
   function put(r0, c, cell) { ws[XLSX.utils.encode_cell({ r: r0, c: c })] = cell; }
   function numCell(v) { return { t: 'n', v: v, z: MONEY }; }
   function moneyF(f) { return { t: 'n', f: f, z: MONEY }; }
   function txt(v) { return { t: 's', v: String(v == null ? '' : v) }; }
-  function indent(level, s) {
-    var pad = { unit: 0, program: 1, kegiatan: 2, kro: 3, ro: 4, komponen: 5, subkomp: 6, akun: 7 }[level] || 0;
-    return new Array(pad * 2 + 1).join(' ') + (s == null ? '' : s);
-  }
+  function padOf(level) { return { unit: 0, program: 1, kegiatan: 2, kro: 3, ro: 4, komponen: 5, subkomp: 6, akun: 7 }[level] || 0; }
 
   /* Header & judul */
   var r0 = 0;
-  put(r0, 0, txt('KOMPOSISI ANGGARAN')); r0++;
-  put(r0, 0, txt('POLITEKNIK ILMU PELAYARAN MAKASSAR')); r0++;
-  put(r0, 0, txt('Kertas Kerja T.A ' + APP.year + ' — Tahap ' + (STAGE_LABEL[APP.stage] || APP.stage))); r0++;
-  r0++; // baris kosong
+  put(r0, 0, txt('KOMPOSISI ANGGARAN')); rowMeta[r0] = { kind: 'title', sz: 14 }; r0++;
+  put(r0, 0, txt('POLITEKNIK ILMU PELAYARAN MAKASSAR')); rowMeta[r0] = { kind: 'title', sz: 11 }; r0++;
+  put(r0, 0, txt('Kertas Kerja T.A ' + APP.year + ' — Tahap ' + (STAGE_LABEL[APP.stage] || APP.stage))); rowMeta[r0] = { kind: 'title', sz: 11 }; r0++;
+  rowMeta[r0] = { kind: 'blank' }; r0++; // baris kosong
   var HR1 = r0, HR2 = r0 + 1;
+  rowMeta[HR1] = { kind: 'h1' }; rowMeta[HR2] = { kind: 'h2' };
   put(HR1, C.KODE, txt('KODE')); put(HR1, C.URAIAN, txt('URAIAN'));
   put(HR1, C.RV0, txt('Rincian Perhitungan Volume'));
   put(HR1, C.VOL, txt('Vol')); put(HR1, C.SAT, txt('Satuan')); put(HR1, C.HRG, txt('Harga')); put(HR1, C.JML, txt('Jumlah'));
@@ -679,14 +678,17 @@ function downloadKertasKerjaXLSX() {
   /* Emit rekursif. Mengembalikan baris (0-indeks) tempat node ditulis. */
   function emit(nd) {
     var my = cursor.r++; nd._row = my;
+    var topLv = (nd.level === 'unit' || nd.level === 'program' || nd.level === 'kegiatan');
+    rowMeta[my] = { kind: topLv ? 'top' : 'sub', ind: padOf(nd.level) };
     put(my, C.KODE, txt(nd.kode));
-    put(my, C.URAIAN, txt(indent(nd.level, nd.uraian)));
+    put(my, C.URAIAN, txt(nd.uraian));
 
     if (nd.level === 'akun') {
       var detRows = [];                     // {row, col(MX key), sd}
       nd.details.forEach(function (d) {
         var dr = cursor.r++;
-        put(dr, C.URAIAN, txt(indent('akun', '  - ' + (d.detail_belanja || d.detail_akun || ''))));
+        rowMeta[dr] = { kind: 'detail', ind: 8 };
+        put(dr, C.URAIAN, txt('- ' + (d.detail_belanja || d.detail_akun || '')));
         put(dr, C.RV0, numCell(+d.vol || 0)); put(dr, C.RV0 + 1, txt(d.sat || ''));
         put(dr, C.VOL, numCell(+d.vol || 0)); put(dr, C.SAT, txt(d.sat || ''));
         put(dr, C.HRG, numCell(+d.hrg_sat || 0));
@@ -695,7 +697,7 @@ function downloadKertasKerjaXLSX() {
       });
       // Jumlah akun = SUM seluruh detail (rentang kontigu)
       if (detRows.length) {
-        var f = nd.details.length ? A1(C.JML, detRows[0].row) + ':' + A1(C.JML, detRows[detRows.length - 1].row) : '';
+        var f = A1(C.JML, detRows[0].row) + ':' + A1(C.JML, detRows[detRows.length - 1].row);
         put(my, C.JML, moneyF('SUM(' + f + ')'));
       }
       // Kolom matriks = SUM Jumlah detail per kolom
@@ -726,9 +728,41 @@ function downloadKertasKerjaXLSX() {
     return my;
   }
   emit(root);
+  var lastRow = cursor.r - 1;
+
+  /* ── STYLING: garis tabel, warna header, shading bertingkat ── */
+  var THIN = { style: 'thin', color: { rgb: 'FF9AA7B6' } };
+  var BORDER = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+  function isNumCol(c) { return c === C.RV0 || c === C.VOL || c === C.HRG || c === C.JML || (c >= MX.W && c <= C.RAYA); }
+  function ensure(r, c) { var a = XLSX.utils.encode_cell({ r: r, c: c }); if (!ws[a]) ws[a] = { t: 's', v: '' }; return ws[a]; }
+  for (var rr = 0; rr <= lastRow; rr++) {
+    var m = rowMeta[rr] || { kind: 'blank' };
+    if (m.kind === 'blank') continue;
+    if (m.kind === 'title') {                                          // judul: tebal, tanpa garis
+      ws[XLSX.utils.encode_cell({ r: rr, c: 0 })].s = { font: { bold: true, sz: m.sz || 11, color: { rgb: 'FF1B2A3A' } }, alignment: { horizontal: 'left', vertical: 'center' } };
+      continue;
+    }
+    for (var cc = 0; cc <= lastCol; cc++) {
+      var cell = ensure(rr, cc), st = { border: BORDER, alignment: { vertical: 'center' } };
+      if (m.kind === 'h1' || m.kind === 'h2') {                        // header biru, teks putih
+        st.fill = { patternType: 'solid', fgColor: { rgb: m.kind === 'h1' ? 'FF1F3A5F' : 'FF33507A' } };
+        st.font = { bold: true, sz: m.kind === 'h1' ? 11 : 9, color: { rgb: 'FFFFFFFF' } };
+        st.alignment = { horizontal: 'center', vertical: 'center', wrapText: true };
+      } else {                                                         // baris data
+        var bold = (m.kind === 'top' || m.kind === 'sub');
+        if (m.kind === 'top') st.fill = { patternType: 'solid', fgColor: { rgb: 'FFDBE5F3' } };
+        else if (m.kind === 'sub') st.fill = { patternType: 'solid', fgColor: { rgb: 'FFEEF3FB' } };
+        st.font = { bold: bold, sz: 10, color: { rgb: 'FF1B2A3A' } };
+        if (cc === C.KODE) st.font = { bold: bold, sz: 10, name: 'Consolas', color: { rgb: 'FF1B2A3A' } };
+        if (cc === C.URAIAN) st.alignment = { vertical: 'center', indent: (m.ind || 0) };
+        else if (cc === C.SDLBL) st.alignment = { horizontal: 'center', vertical: 'center' };
+        else if (isNumCol(cc)) { st.alignment = { horizontal: 'right', vertical: 'center' }; st.numFmt = MONEY; }
+      }
+      cell.s = st;
+    }
+  }
 
   /* Range, merge sel header, lebar kolom */
-  var lastRow = cursor.r - 1, lastCol = 30;
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: lastRow, c: lastCol } });
   ws['!merges'] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
@@ -747,14 +781,15 @@ function downloadKertasKerjaXLSX() {
     { s: { r: HR1, c: C.RAYA }, e: { r: HR2, c: C.RAYA } },
     { s: { r: HR1, c: C.SDLBL }, e: { r: HR2, c: C.SDLBL } }
   ];
-  var cols = []; for (var ci = 0; ci <= lastCol; ci++) cols.push({ wch: ci === C.URAIAN ? 46 : (ci === C.KODE ? 16 : (ci >= MX.W ? 11 : 8)) });
+  ws['!rows'] = []; ws['!rows'][HR1] = { hpt: 18 }; ws['!rows'][HR2] = { hpt: 26 };
+  var cols = []; for (var ci = 0; ci <= lastCol; ci++) cols.push({ wch: ci === C.URAIAN ? 50 : (ci === C.KODE ? 16 : (ci >= MX.W && ci <= C.RAYA ? 12 : (ci >= C.RV0 && ci <= C.RV0 + 13 ? 6 : 9))) });
   ws['!cols'] = cols;
 
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'DETAIL');
   var fname = 'Kertas_Kerja_PIP_Makassar_TA' + APP.year + '_' + (STAGE_LABEL[APP.stage] || APP.stage) + '.xlsx';
-  XLSX.writeFile(wb, fname, { bookType: 'xlsx', cellStyles: true });
-  toast('success', 'Kertas Kerja Diunduh', 'Format .xlsx dgn rumus hidup · TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + ' · ' + rows.length + ' detail.');
+  XLSX.writeFile(wb, fname, { bookType: 'xlsx' });
+  toast('success', 'Kertas Kerja Diunduh', 'Excel berformat + rumus hidup · TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + ' · ' + rows.length + ' detail.');
 }
 
 /* ═══════════════════════════════════════════════════════════════════
