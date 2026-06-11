@@ -1173,19 +1173,24 @@ function ruhSelect(key, type) {
   renderRuh();
 }
 
+/* Tombol RUH dinamis sesuai level terpilih (klik parent → tombol anak). */
+function ruhToolbarActs(t) {
+  if (!t || t === 'program' || t === 'kegiatan' || t === 'info' || t === 'kro')
+    return [{ label: 'Rekam KRO', fn: 'ruhRekamKro()' }, { label: 'Rekam RO', fn: 'ruhRekamRo()' }];
+  if (t === 'ro') return [{ label: 'Rekam Komponen', fn: 'ruhRekamKomp()' }];
+  if (t === 'komponen') return [{ label: 'Rekam Sub Komponen', fn: 'ruhRekamSubkomp()' }];
+  if (t === 'subkomp') return [{ label: 'Rekam Akun', fn: 'ruhRekamAkun()' }];
+  if (t === 'akun') return [{ label: 'Rekam Detail', fn: 'ruhRekamDetail()' }];
+  if (t === 'detail') return [{ label: 'Ubah Detail', fn: 'ruhRekamDetail(true)' }, { label: 'Hapus Detail', fn: 'ruhHapusDetail()' }];
+  return [{ label: 'Rekam KRO', fn: 'ruhRekamKro()' }, { label: 'Rekam RO', fn: 'ruhRekamRo()' }];
+}
+
 function renderRuh() {
   var c = ruhCtx(), built = ruhBuildRows(c.ta, c.tahap);
   APP.ruh._rows = built.rows;
   var pg = document.getElementById('ruhPagu'); if (pg) pg.innerHTML = 'Pagu : <strong>' + fmtN(built.total) + '</strong>';
-  /* Toolbar kontekstual ala SAKTI — default: Rekam KRO */
-  var t = APP.ruh.selType, acts = [];
-  if (!t || t === 'program' || t === 'kegiatan' || t === 'info') acts.push({ label: 'Rekam KRO', fn: 'ruhRekamKro()' });
-  if (t === 'kro') { acts.push({ label: 'Rekam KRO', fn: 'ruhRekamKro()' }); acts.push({ label: 'Rekam RO', fn: 'ruhRekamRo()' }); }
-  if (t === 'ro') acts.push({ label: 'Rekam Komponen', fn: 'ruhRekamKomp()' });
-  if (t === 'komponen') acts.push({ label: 'Rekam Sub Komponen', fn: 'ruhRekamSubkomp()' });
-  if (t === 'subkomp') acts.push({ label: 'Rekam Akun', fn: 'ruhRekamAkun()' });
-  if (t === 'akun') acts.push({ label: 'Rekam Detail', fn: 'ruhRekamDetail()' });
-  if (t === 'detail') { acts.push({ label: 'Ubah Detail', fn: 'ruhRekamDetail(true)' }); acts.push({ label: 'Hapus Detail', fn: 'ruhHapusDetail()' }); }
+  /* Toolbar dinamis ala SAKTI — klik parent memunculkan tombol anak. */
+  var acts = ruhToolbarActs(APP.ruh.selType);
   var tb = document.getElementById('ruhToolbar');
   if (tb) tb.innerHTML = acts.map(function (a, i) { return '<button class="ruh-btn" onclick="' + a.fn + '">' + (i + 1) + '. ' + a.label + '</button>'; }).join('');
   /* Grid ala SAKTI: KODE | URAIAN | VOL | SAT | HARGA | JUMLAH | *T | SD */
@@ -1296,10 +1301,21 @@ function ruhRekamKro() {
     }
   });
 }
-/* 2) Rekam RO — klik 1× di KRO → modal "Pilih RO" (gambar 5) */
+/* 2) Rekam RO — pilih KRO induk (klik baris KRO; jika di default, pilih KRO dulu) → "Pilih RO" (gambar 5) */
 function ruhRekamRo() {
   if (!requireLogin('merekam RO')) return;
-  var node = ruhFind(APP.ruh.selKey); if (!node) return;
+  var node = ruhFind(APP.ruh.selKey);
+  if (node && node.type === 'kro') { ruhRekamRoFor(node); return; }
+  /* default / level lain: minta pilih KRO induk dari KRO yang sudah direkam */
+  var kros = (APP.ruh._rows || []).filter(function (r) { return r.type === 'kro'; });
+  if (!kros.length) { toast('info', 'Rekam KRO Dulu', 'Belum ada KRO. Klik "1. Rekam KRO" untuk menambah KRO sebagai induk RO.'); return; }
+  if (kros.length === 1) { APP.ruh.selKey = kros[0].key; APP.ruh.selType = 'kro'; ruhRekamRoFor(kros[0]); return; }
+  ruhPicker({
+    title: 'Pilih KRO (induk RO)', items: kros.map(function (k) { return { code: k.kode, uraian: k.uraian, _key: k.key }; }), noMode: true, okLabel: 'Pilih',
+    onOk: function (it) { var n = ruhFind(it._key); APP.ruh.selKey = it._key; APP.ruh.selType = 'kro'; ruhModalClose(); ruhRekamRoFor(n); }
+  });
+}
+function ruhRekamRoFor(node) {
   var p = node.path, parent = p.prog + '.' + p.keg + '.' + p.kro;
   var items = childrenOf('ro', parent).map(function (o) { return { code: '022.' + parent + '.' + o.kode, uraian: o.uraian, ro: o.kode }; });
   if (!items.length) { toast('info', 'Referensi Kosong', 'Tidak ada RO pada referensi untuk KRO ini.'); return; }
@@ -1909,7 +1925,7 @@ if (typeof module !== 'undefined' && module.exports) {
     REF_TABLES: REF_TABLES, refDef: refDef,
     CASCADE: CASCADE, childrenOf: childrenOf, uraianOf: uraianOf, pathOf: pathOf,
     kkColOf: kkColOf, refUraian: refUraian, downloadKertasKerja: downloadKertasKerja, downloadKertasKerjaXLSX: downloadKertasKerjaXLSX,
-    ruhBuildRows: ruhBuildRows, ruhLoadDraft: ruhLoadDraft, ruhSaveDraft: ruhSaveDraft, fmtN: fmtN,
+    ruhBuildRows: ruhBuildRows, ruhLoadDraft: ruhLoadDraft, ruhSaveDraft: ruhSaveDraft, fmtN: fmtN, ruhToolbarActs: ruhToolbarActs,
     kkNum: kkNum, kkDetectCols: kkDetectCols, kkIsDetail: kkIsDetail, kkCleanName: kkCleanName,
     kkMeta: kkMeta, kkParseMatrix: kkParseMatrix,
     kkUpsertKeyOf: kkUpsertKeyOf, kkDedupeForUpsert: kkDedupeForUpsert,
