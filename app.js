@@ -603,6 +603,160 @@ function downloadKertasKerja() {
   toast('success', 'Kertas Kerja Diunduh', 'Format Komposisi Anggaran · TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + ' · ' + rows.length + ' detail.');
 }
 
+/* ── Download Kertas Kerja (XLSX dgn RUMUS hidup, SheetJS) ──
+   Output .xlsx asli: Jumlah detail = rumus =Vol*Harga, Jumlah baris struktur
+   (akun→unit) = SUM penjumlahan ke atas, kolom matriks & Sumber Dana juga rumus.
+   Saat dibuka/diedit di Excel, semua angka tetap dihitung otomatis.            */
+function downloadKertasKerjaXLSX() {
+  if (typeof XLSX === 'undefined') { toast('error', 'Pustaka Tidak Siap', 'SheetJS (penulis Excel) belum dimuat.'); return; }
+  var rows = recordsView(APP.year, APP.stage);
+  if (!rows.length) { toast('error', 'Tidak Ada Data', 'Belum ada usulan pada TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + '.'); return; }
+
+  /* Bangun pohon agregasi (sama logikanya dgn downloadKertasKerja) */
+  function node(kode, uraian, level) { return { kode: kode, uraian: uraian, level: level, total: 0, b: { W: 0, X: 0, Y: 0, Z: 0, AA: 0, AB: 0 }, sd: { rm: 0, blu: 0, sbsn: 0 }, order: [], map: {}, details: [], sdLabel: '', _row: 0 }; }
+  function child(p, kode, uraian, level) { if (!p.map[kode]) { p.map[kode] = node(kode, uraian, level); p.order.push(kode); } return p.map[kode]; }
+  function add(n, col, amt, sd) { n.total += amt; n.b[col] += amt; n.sd[sd] = (n.sd[sd] || 0) + amt; }
+
+  var unit = (rows[0].prog || '').split('.')[0] || '12';
+  var root = node('022.' + unit, 'POLITEKNIK ILMU PELAYARAN MAKASSAR', 'unit');
+  rows.forEach(function (r) {
+    var col = kkColOf(r), amt = amountOf(r), sd = r.sd;
+    var pPath = r.prog, kPath = r.prog + '.' + r.keg, krPath = kPath + '.' + r.kro, roPath = krPath + '.' + r.ro;
+    add(root, col, amt, sd);
+    var nP = child(root, '022.' + r.prog, refUraian('program', r.prog, '') || r.prog_nama || '', 'program'); add(nP, col, amt, sd);
+    var nK = child(nP, r.keg, refUraian('kegiatan', r.keg, pPath) || r.keg_nama || '', 'kegiatan'); add(nK, col, amt, sd);
+    var nR = child(nK, r.keg + '.' + r.kro, refUraian('kro', r.kro, kPath) || r.kro_nama || '', 'kro'); add(nR, col, amt, sd);
+    var nO = child(nR, r.keg + '.' + r.kro + '.' + r.ro, refUraian('ro', r.ro, krPath) || r.ro_nama || '', 'ro'); add(nO, col, amt, sd);
+    var nC = child(nO, r.komp, refUraian('komponen', r.komp, roPath), 'komponen'); add(nC, col, amt, sd);
+    var nS = child(nC, r.subkomp || '-', r.subkomp_nama || '', 'subkomp'); add(nS, col, amt, sd);
+    var nA = child(nS, r.akun, refUraian('akun', r.akun, r.sd) || 'Belanja', 'akun'); nA.sdLabel = r.sd; add(nA, col, amt, sd);
+    nA.details.push(r);
+  });
+
+  /* Tata letak kolom (0-indeks) — sama dgn versi HTML, NCOL = 31 */
+  var C = { KODE: 0, URAIAN: 1, RV0: 2, VOL: 16, SAT: 17, HRG: 18, JML: 19, RAYA: 29, SDLBL: 30 };
+  var MX = { W: 20, X: 21, Y: 22, Z: 23, AA: 24, AB: 25 };           // kolom matriks (Operasional/Non-Op/Modal)
+  var SDC = { rm: 26, blu: 27, sbsn: 28 };                            // kolom Sumber Dana
+  var NUM = ['#,##0'];                                                // format ribuan
+  var MONEY = '#,##0';
+
+  var ws = {};
+  function L(c) { return XLSX.utils.encode_col(c); }                  // indeks kolom → huruf
+  function A1(c, r0) { return L(c) + (r0 + 1); }                      // alamat A1 (r0 = 0-indeks)
+  function put(r0, c, cell) { ws[XLSX.utils.encode_cell({ r: r0, c: c })] = cell; }
+  function numCell(v) { return { t: 'n', v: v, z: MONEY }; }
+  function moneyF(f) { return { t: 'n', f: f, z: MONEY }; }
+  function txt(v) { return { t: 's', v: String(v == null ? '' : v) }; }
+  function indent(level, s) {
+    var pad = { unit: 0, program: 1, kegiatan: 2, kro: 3, ro: 4, komponen: 5, subkomp: 6, akun: 7 }[level] || 0;
+    return new Array(pad * 2 + 1).join(' ') + (s == null ? '' : s);
+  }
+
+  /* Header & judul */
+  var r0 = 0;
+  put(r0, 0, txt('KOMPOSISI ANGGARAN')); r0++;
+  put(r0, 0, txt('POLITEKNIK ILMU PELAYARAN MAKASSAR')); r0++;
+  put(r0, 0, txt('Kertas Kerja T.A ' + APP.year + ' — Tahap ' + (STAGE_LABEL[APP.stage] || APP.stage))); r0++;
+  r0++; // baris kosong
+  var HR1 = r0, HR2 = r0 + 1;
+  put(HR1, C.KODE, txt('KODE')); put(HR1, C.URAIAN, txt('URAIAN'));
+  put(HR1, C.RV0, txt('Rincian Perhitungan Volume'));
+  put(HR1, C.VOL, txt('Vol')); put(HR1, C.SAT, txt('Satuan')); put(HR1, C.HRG, txt('Harga')); put(HR1, C.JML, txt('Jumlah'));
+  put(HR1, MX.W, txt('Belanja Operasional')); put(HR1, MX.Z, txt('Belanja Non Operasional'));
+  put(HR1, SDC.rm, txt('Sumber Dana')); put(HR1, C.RAYA, txt('Jumlah Raya')); put(HR1, C.SDLBL, txt('SD'));
+  // sub-header baris-2: grup Vol1..Sat5 + label matriks + RM/BLU/SBSN
+  var sub = ['Vol1', 'Sat1', '×', 'Vol2', 'Sat2', '×', 'Vol3', 'Sat3', '×', 'Vol4', 'Sat4', '×', 'Vol5', 'Sat5'];
+  for (var s = 0; s < sub.length; s++) put(HR2, C.RV0 + s, txt(sub[s]));
+  put(HR2, MX.W, txt('Pegawai RM')); put(HR2, MX.X, txt('Barang RM')); put(HR2, MX.Y, txt('Barang BLU'));
+  put(HR2, MX.Z, txt('Barang RM')); put(HR2, MX.AA, txt('Barang BLU')); put(HR2, MX.AB, txt('Modal SBSN'));
+  put(HR2, SDC.rm, txt('RM')); put(HR2, SDC.blu, txt('BLU')); put(HR2, SDC.sbsn, txt('SBSN'));
+  r0 = HR2 + 1; // baris data pertama
+
+  /* Sum dari daftar alamat A1 (kosong → ''); range bila kontigu */
+  function sumRefs(refs) { return refs.length ? 'SUM(' + refs.join(',') + ')' : ''; }
+
+  var cursor = { r: r0 };
+  /* Emit rekursif. Mengembalikan baris (0-indeks) tempat node ditulis. */
+  function emit(nd) {
+    var my = cursor.r++; nd._row = my;
+    put(my, C.KODE, txt(nd.kode));
+    put(my, C.URAIAN, txt(indent(nd.level, nd.uraian)));
+
+    if (nd.level === 'akun') {
+      var detRows = [];                     // {row, col(MX key), sd}
+      nd.details.forEach(function (d) {
+        var dr = cursor.r++;
+        put(dr, C.URAIAN, txt(indent('akun', '  - ' + (d.detail_belanja || d.detail_akun || ''))));
+        put(dr, C.RV0, numCell(+d.vol || 0)); put(dr, C.RV0 + 1, txt(d.sat || ''));
+        put(dr, C.VOL, numCell(+d.vol || 0)); put(dr, C.SAT, txt(d.sat || ''));
+        put(dr, C.HRG, numCell(+d.hrg_sat || 0));
+        put(dr, C.JML, moneyF(A1(C.VOL, dr) + '*' + A1(C.HRG, dr)));   // RUMUS PERKALIAN
+        detRows.push({ row: dr, col: kkColOf(d), sd: d.sd });
+      });
+      // Jumlah akun = SUM seluruh detail (rentang kontigu)
+      if (detRows.length) {
+        var f = nd.details.length ? A1(C.JML, detRows[0].row) + ':' + A1(C.JML, detRows[detRows.length - 1].row) : '';
+        put(my, C.JML, moneyF('SUM(' + f + ')'));
+      }
+      // Kolom matriks = SUM Jumlah detail per kolom
+      Object.keys(MX).forEach(function (k) {
+        var refs = detRows.filter(function (x) { return x.col === k; }).map(function (x) { return A1(C.JML, x.row); });
+        if (refs.length) put(my, MX[k], moneyF(sumRefs(refs)));
+      });
+      // Kolom Sumber Dana = SUM Jumlah detail per sumber dana
+      Object.keys(SDC).forEach(function (sdk) {
+        var refs = detRows.filter(function (x) { return x.sd === sdk; }).map(function (x) { return A1(C.JML, x.row); });
+        if (refs.length) put(my, SDC[sdk], moneyF(sumRefs(refs)));
+      });
+      put(my, C.RAYA, moneyF(A1(C.JML, my)));
+      if (nd.sdLabel) put(my, C.SDLBL, txt(String(nd.sdLabel).toUpperCase()));
+    } else {
+      var childRows = nd.order.map(function (k) { return emit(nd.map[k]); });
+      var jmlRefs = childRows.map(function (cr) { return A1(C.JML, cr); });
+      if (jmlRefs.length) put(my, C.JML, moneyF(sumRefs(jmlRefs)));
+      // Matriks & Sumber Dana = SUM anak (hanya tulis bila totalnya tak nol → tetap blanko spt versi HTML)
+      Object.keys(MX).forEach(function (k) {
+        if (nd.b[k]) put(my, MX[k], moneyF(sumRefs(childRows.map(function (cr) { return A1(MX[k], cr); }))));
+      });
+      Object.keys(SDC).forEach(function (sdk) {
+        if (nd.sd[sdk]) put(my, SDC[sdk], moneyF(sumRefs(childRows.map(function (cr) { return A1(SDC[sdk], cr); }))));
+      });
+      put(my, C.RAYA, moneyF(A1(C.JML, my)));
+    }
+    return my;
+  }
+  emit(root);
+
+  /* Range, merge sel header, lebar kolom */
+  var lastRow = cursor.r - 1, lastCol = 30;
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: lastRow, c: lastCol } });
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: lastCol } },
+    { s: { r: HR1, c: C.KODE }, e: { r: HR2, c: C.KODE } },
+    { s: { r: HR1, c: C.URAIAN }, e: { r: HR2, c: C.URAIAN } },
+    { s: { r: HR1, c: C.RV0 }, e: { r: HR1, c: C.RV0 + 13 } },
+    { s: { r: HR1, c: C.VOL }, e: { r: HR2, c: C.VOL } },
+    { s: { r: HR1, c: C.SAT }, e: { r: HR2, c: C.SAT } },
+    { s: { r: HR1, c: C.HRG }, e: { r: HR2, c: C.HRG } },
+    { s: { r: HR1, c: C.JML }, e: { r: HR2, c: C.JML } },
+    { s: { r: HR1, c: MX.W }, e: { r: HR1, c: MX.Y } },
+    { s: { r: HR1, c: MX.Z }, e: { r: HR1, c: MX.AB } },
+    { s: { r: HR1, c: SDC.rm }, e: { r: HR1, c: SDC.sbsn } },
+    { s: { r: HR1, c: C.RAYA }, e: { r: HR2, c: C.RAYA } },
+    { s: { r: HR1, c: C.SDLBL }, e: { r: HR2, c: C.SDLBL } }
+  ];
+  var cols = []; for (var ci = 0; ci <= lastCol; ci++) cols.push({ wch: ci === C.URAIAN ? 46 : (ci === C.KODE ? 16 : (ci >= MX.W ? 11 : 8)) });
+  ws['!cols'] = cols;
+
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'DETAIL');
+  var fname = 'Kertas_Kerja_PIP_Makassar_TA' + APP.year + '_' + (STAGE_LABEL[APP.stage] || APP.stage) + '.xlsx';
+  XLSX.writeFile(wb, fname, { bookType: 'xlsx', cellStyles: true });
+  toast('success', 'Kertas Kerja Diunduh', 'Format .xlsx dgn rumus hidup · TA ' + APP.year + ' tahap ' + (STAGE_LABEL[APP.stage] || APP.stage) + ' · ' + rows.length + ' detail.');
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    UPLOAD / IMPOR KERTAS KERJA  →  records aplikasi
    Membaca file Excel "Komposisi Anggaran" (format DETAIL) lalu
@@ -1277,7 +1431,7 @@ if (typeof module !== 'undefined' && module.exports) {
     authToken: authToken, isLoggedIn: isLoggedIn,
     REF_TABLES: REF_TABLES, refDef: refDef,
     CASCADE: CASCADE, childrenOf: childrenOf, uraianOf: uraianOf, pathOf: pathOf,
-    kkColOf: kkColOf, refUraian: refUraian, downloadKertasKerja: downloadKertasKerja,
+    kkColOf: kkColOf, refUraian: refUraian, downloadKertasKerja: downloadKertasKerja, downloadKertasKerjaXLSX: downloadKertasKerjaXLSX,
     kkNum: kkNum, kkDetectCols: kkDetectCols, kkIsDetail: kkIsDetail, kkCleanName: kkCleanName,
     kkMeta: kkMeta, kkParseMatrix: kkParseMatrix,
     kkUpsertKeyOf: kkUpsertKeyOf, kkDedupeForUpsert: kkDedupeForUpsert,
