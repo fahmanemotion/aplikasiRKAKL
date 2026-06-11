@@ -719,6 +719,27 @@ function kkParseMatrix(aoa, override) {
   return { records: recs, meta: { ta: ta, tahap: tahap, satker: meta.satker, count: recs.length, total: recs.reduce(function (a, r) { return a + (+r.jumlah || 0); }, 0) } };
 }
 
+/* ── Hindari galat upsert 21000 (ON CONFLICT dua kali pada baris sama) ──
+   Kunci unik DB = ta,tahap,ba,prog,keg,kro,ro,komp,subkomp,akun,detail_belanja.
+   Bila satu file memuat >1 Detail Belanja dengan kunci identik (mis. "Honor
+   Mengajar" muncul dua kali pada akun yang sama), upsert satu perintah akan
+   menolak. Solusi tanpa kehilangan data: beri akhiran " (2)", " (3)" … pada
+   nama detail yang bertabrakan sehingga setiap baris memiliki kunci unik. */
+var KK_KEYS = ['ta', 'tahap', 'ba', 'prog', 'keg', 'kro', 'ro', 'komp', 'subkomp', 'akun', 'detail_belanja'];
+function kkUpsertKeyOf(r) { return KK_KEYS.map(function (k) { return r[k] == null ? '' : String(r[k]); }).join('\u0001'); }
+function kkDedupeForUpsert(records) {
+  var seen = {}, rows = [], renamed = 0;
+  records.forEach(function (r) {
+    var base = kkUpsertKeyOf(r);
+    if (!seen[base]) { seen[base] = true; rows.push(r); return; }
+    var copy = {}; for (var k in r) copy[k] = r[k];
+    var n = 1;
+    do { n++; copy.detail_belanja = r.detail_belanja + ' (' + n + ')'; } while (seen[kkUpsertKeyOf(copy)]);
+    seen[kkUpsertKeyOf(copy)] = true; rows.push(copy); renamed++;
+  });
+  return { rows: rows, renamed: renamed };
+}
+
 /* ── Glue browser: baca File → array-of-arrays via SheetJS ── */
 function kkReadFile(file) {
   return new Promise(function (resolve, reject) {
@@ -783,6 +804,7 @@ function renderImportPreview() {
   var akun = {}, kat = { ops: 0, nonops: 0 }, sd = { rm: 0, blu: 0 };
   recs.forEach(function (r) { akun[r.akun] = 1; kat[r.kategori] = (kat[r.kategori] || 0) + r.jumlah; sd[r.sd] = (sd[r.sd] || 0) + r.jumlah; });
   var kegSet = {}; recs.forEach(function (r) { kegSet[kodeOf(r)] = 1; });
+  var dupN = kkDedupeForUpsert(recs).renamed;
   var sample = recs.slice(0, 8).map(function (r) {
     return '<tr><td class="mono">' + esc(r.akun) + '</td><td>' + esc(r.detail_belanja) + '</td>' +
       '<td class="mono" style="text-align:right">' + r.vol + '</td><td>' + esc(r.sat) + '</td>' +
@@ -797,7 +819,8 @@ function renderImportPreview() {
     '<div class="imp-stat"><span>' + Object.keys(kegSet).length + '</span>Baris Akun</div>' +
     '<div class="imp-stat tot"><span>' + fmtM(total) + '</span>Total Nilai</div>' +
     '</div>' +
-    '<div class="imp-note"><i class="fas fa-circle-info"></i> Operasional ' + fmtRp(kat.ops) + ' · Non-Operasional ' + fmtRp(kat.nonops) + ' · RM ' + fmtRp(sd.rm) + ' · BLU ' + fmtRp(sd.blu) + '. Total dihitung dari Volume × Harga tiap baris, sehingga dapat sedikit berbeda dari pagu resmi bila ada baris bernilai nol pada file.</div>' +
+    '<div class="imp-note"><i class="fas fa-circle-info"></i> Operasional ' + fmtRp(kat.ops) + ' · Non-Operasional ' + fmtRp(kat.nonops) + ' · RM ' + fmtRp(sd.rm) + ' · BLU ' + fmtRp(sd.blu) + '. Total dihitung dari Volume × Harga tiap baris, sehingga dapat sedikit berbeda dari pagu resmi bila ada baris bernilai nol pada file.' +
+    (dupN ? ' <strong>' + dupN + ' baris</strong> memiliki nama Detail Belanja ganda pada akun yang sama — namanya otomatis diberi akhiran (2), (3), … agar tidak saling menimpa saat disimpan.' : '') + '</div>' +
     '<div class="imp-tbl-wrap"><table class="imp-tbl"><thead><tr><th>AKUN</th><th>DETAIL BELANJA</th><th style="text-align:right">VOL</th><th>SAT</th><th style="text-align:right">HRG SAT</th><th style="text-align:right">JUMLAH</th><th>SD</th><th>KAT</th></tr></thead><tbody>' + sample + '</tbody></table>' +
     (recs.length > 8 ? '<div class="imp-more">… dan ' + (recs.length - 8) + ' baris lainnya</div>' : '') + '</div>';
   var cb = document.getElementById('impConfirmBtn'); if (cb) cb.disabled = false;
@@ -816,11 +839,13 @@ async function confirmImport() {
     if (replace) {
       await supaWrite('DELETE', TABLE, { query: 'ta=eq.' + encodeURIComponent(ta) + '&tahap=eq.' + encodeURIComponent(tahap) });
     }
-    var rows = recs.map(toDbRow);
+    var dd = kkDedupeForUpsert(recs);
+    var rows = dd.rows.map(toDbRow);
     for (var i = 0; i < rows.length; i += 200) {
       await supaWrite('POST', TABLE, { query: UPSERT_KEY, body: rows.slice(i, i + 200), upsert: true });
     }
-    toast('success', 'Kertas Kerja Diunggah', rows.length + ' Detail Belanja tersimpan · TA ' + ta + ' tahap ' + (STAGE_LABEL[tahap] || tahap) + '. Memuat ulang…');
+    toast('success', 'Kertas Kerja Diunggah', rows.length + ' Detail Belanja tersimpan · TA ' + ta + ' tahap ' + (STAGE_LABEL[tahap] || tahap) +
+      (dd.renamed ? ' · ' + dd.renamed + ' nama detail ganda disesuaikan' : '') + '. Memuat ulang…');
     closeImport();
     APP.year = String(ta); APP.stage = tahap;
     var ts = document.getElementById('taSelect'); if (ts) ts.value = String(ta);
@@ -1255,6 +1280,7 @@ if (typeof module !== 'undefined' && module.exports) {
     kkColOf: kkColOf, refUraian: refUraian, downloadKertasKerja: downloadKertasKerja,
     kkNum: kkNum, kkDetectCols: kkDetectCols, kkIsDetail: kkIsDetail, kkCleanName: kkCleanName,
     kkMeta: kkMeta, kkParseMatrix: kkParseMatrix,
+    kkUpsertKeyOf: kkUpsertKeyOf, kkDedupeForUpsert: kkDedupeForUpsert,
     fmtRp: fmtRp, fmtM: fmtM, yearOptions: yearOptions, STAGES: STAGES, UPSERT_KEY: UPSERT_KEY, TABLE: TABLE,
   };
 }

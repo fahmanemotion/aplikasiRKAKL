@@ -229,6 +229,35 @@ console.log('\n\u25B6 impor kertas kerja: meta tahap & TA dari judul');
   ok(captured.indexOf('19500000') >= 0, 'round-trip: Jumlah Raya = total impor 19.500.000');
 })();
 
+console.log('\n\u25B6 impor kertas kerja: cegah galat upsert 21000 (kunci ganda)');
+(function () {
+  function rec(detail, vol, hrg) {
+    return { ta: '2027', tahap: 'kebutuhan', ba: '022', prog: '12.DL', keg: '3996', kro: 'SAB', ro: '005', komp: '051', subkomp: 'B', akun: '525172', detail_belanja: detail, vol: vol, sat: 'OK', hrg_sat: hrg, jumlah: vol * hrg, sd: 'rm', kategori: 'nonops', jenis: 'barang' };
+  }
+  var a = rec('Honor Mengajar', 1144, 175000);
+  var b = rec('Honor Mengajar', 1204, 175000); // kunci sama, nilai beda
+  var c = rec('Honor Mengajar', 1144, 175000); // duplikat persis dari a (kunci sama)
+  var d = rec('Seminar Hasil', 0, 0);
+  eq(A.kkUpsertKeyOf(a), A.kkUpsertKeyOf(b), 'kunci upsert sama untuk detail_belanja identik pada akun sama');
+  ok(A.kkUpsertKeyOf(a) !== A.kkUpsertKeyOf(d), 'kunci berbeda bila detail_belanja berbeda');
+
+  var input = [a, b, c, d];
+  var totalIn = input.reduce(function (s, r) { return s + r.jumlah; }, 0);
+  var dd = A.kkDedupeForUpsert(input);
+  eq(dd.rows.length, 4, 'tanpa kehilangan baris (4 → 4)');
+  eq(dd.renamed, 2, '2 baris bertabrakan diberi akhiran');
+  eq(dd.rows.reduce(function (s, r) { return s + r.jumlah; }, 0), totalIn, 'total nilai tetap (tidak ada yang hilang)');
+  // semua kunci unik
+  var keys = {}, dups = 0; dd.rows.forEach(function (r) { var k = A.kkUpsertKeyOf(r); if (keys[k]) dups++; keys[k] = 1; });
+  eq(dups, 0, 'semua kunci upsert menjadi unik (penyebab 21000 hilang)');
+  eq(dd.rows[0].detail_belanja, 'Honor Mengajar', 'kemunculan pertama nama asli');
+  eq(dd.rows[1].detail_belanja, 'Honor Mengajar (2)', 'tabrakan ke-2 → " (2)"');
+  eq(dd.rows[2].detail_belanja, 'Honor Mengajar (3)', 'tabrakan ke-3 → " (3)"');
+  // simulasi batch upsert: tidak boleh ada kunci ganda dalam satu batch
+  var bad = 0, s2 = {}; dd.rows.forEach(function (r) { var k = A.kkUpsertKeyOf(r); if (s2[k]) bad++; s2[k] = 1; });
+  eq(bad, 0, 'tidak ada kunci ganda dalam batch (perintah ON CONFLICT aman)');
+})();
+
 console.log('\n' + '='.repeat(50));
 console.log('HASIL: ' + pass + ' lulus, ' + fail + ' gagal');
 console.log(fail === 0 ? 'Semua pengujian LULUS \u2705' : 'ADA YANG GAGAL \u274C');
